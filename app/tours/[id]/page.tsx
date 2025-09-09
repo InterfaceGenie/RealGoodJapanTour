@@ -14,6 +14,7 @@ import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { Checkbox } from "@/components/ui/checkbox"
 import { MapPicker } from "@/components/map-picker"
+import { useRouter } from "next/navigation"
 import {
   Star,
   Users,
@@ -104,6 +105,7 @@ export default function TourDetailPage() {
   const [currentImageIndex, setCurrentImageIndex] = useState(0)
   const [agreedToTerms, setAgreedToTerms] = useState(false)
   const [submitting, setSubmitting] = useState(false)
+  const router = useRouter()
 
   useEffect(() => {
     let active = true
@@ -195,7 +197,6 @@ export default function TourDetailPage() {
     setSubmitting(true)
 
     const insertPayload = {
-      user_id: "8bcf0c0b-4147-40b1-89dc-e66a2053b3ad",
       tour_id: tour.dbId, // REAL FK to tours.id
       tour_date: selectedDate,
       tour_time: timeSql,
@@ -226,23 +227,19 @@ export default function TourDetailPage() {
         return
       }
 
-      alert(
-        `Booking submitted! 🎉\nYour reference: ${data?.booking_number || data?.id}\nTotal: ${formattedPrice}\n\nWe’ll email you a confirmation shortly. Payment will be collected on the day of the tour.`
-      )
+      // ➜ redirect to confirmation page
+      const ref = data?.booking_number || data?.id
+      if (ref) {
+        router.push(`/confirmation?ref=${encodeURIComponent(ref)}`)
+        return
+      }
 
-      // reset form
-      setGuests(1)
-      setSelectedDate("")
-      setSelectedTime("")
-      setPickup({ address: "", lat: 0, lng: 0 })
-      setCustomerName("")
-      setCustomerEmail("")
-      setCustomerPhone("")
-      setSpecialRequests("")
-      setAgreedToTerms(false)
+      // Fallback (shouldn't happen): show success inline
+      alert(`Booking submitted! 🎉 Reference: ${data?.id}`)
     } finally {
       setSubmitting(false)
     }
+
   }
 
   if (loading) {

@@ -252,7 +252,7 @@ export default function HomePage() {
                     </div>
 
                     <Button className="w-full bg-gradient-to-r from-amber-600 to-orange-600 hover:from-amber-700 hover:to-orange-700 text-white shadow-lg hover:shadow-xl transition-all duration-300" asChild>
-                      <Link href={`/tour/${tour.id}`}>
+                      <Link href={`/tours/${tour.id}`}>
                         Reserve This Experience
                       </Link>
                     </Button>

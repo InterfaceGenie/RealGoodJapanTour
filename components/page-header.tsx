@@ -26,7 +26,7 @@ export default function PageHeader() {
             </Link>
           </nav>
           <nav className="hidden md:flex items-center space-x-8">
-            <Link href="#tours" className="text-sm font-medium text-slate-700 hover:text-amber-600 transition-colors">
+            <Link href="/tours" className="text-sm font-medium text-slate-700 hover:text-amber-600 transition-colors">
               Premium Tours
             </Link>
             <Link href="/gallery" className="text-sm font-medium text-slate-700 hover:text-amber-600 transition-colors">
