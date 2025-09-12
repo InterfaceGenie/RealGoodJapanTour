@@ -31,7 +31,6 @@ import {
 import PageHeader from "@/components/page-header"
 
 type UITour = {
-  /** URL-facing id (external_id if present, else id) */
   id: string
   /** REAL DB UUID for FK use */
   dbId: string
@@ -112,16 +111,14 @@ export default function TourDetailPage() {
       ; (async () => {
         setLoading(true)
         setError(null)
-
-        // include both id (uuid) and external_id so we can map dbId
         const columns = `
-        id, external_id, title, short_title, price, duration, max_guests,
+        id, title, short_title, price, duration, max_guests,
         rating, reviews, image, highlights, description, pickup_restrictions
       `
         const { data, error } = await supabase
           .from("tours")
           .select(columns)
-          .or(`external_id.eq.${routeId},id.eq.${routeId}`)
+          .or(`id.eq.${routeId}`)
           .maybeSingle()
 
         if (!active) return
@@ -132,7 +129,7 @@ export default function TourDetailPage() {
           setError("Tour not found")
         } else {
           const mapped: UITour = {
-            id: (data.external_id as string) || (data.id as string),
+            id: (data.id as string),
             dbId: data.id, // REAL uuid
             title: data.title,
             shortTitle: data.short_title ?? undefined,
@@ -214,28 +211,32 @@ export default function TourDetailPage() {
     }
 
     try {
-      const { data, error } = await supabase
-        .from("bookings")
-        .insert(insertPayload)
-        .select("id, booking_number")
-        .single()
+      const { data, error } = await supabase.rpc("book_tour_atomic_by_date", {
+        _tour_id: tour.dbId,
+        _tour_date: selectedDate,           // 'YYYY-MM-DD'
+        _tour_time: toSqlTime(selectedTime),// 'HH:MM:SS'
+        _guests: guests,
+        _total_price: totalPrice,
+        _pickup_location: pickup.address,
+        _pickup_lat: toNullable(pickup.lat),
+        _pickup_lng: toNullable(pickup.lng),
+        _customer_name: customerName,
+        _customer_email: customerEmail,
+        _customer_phone: customerPhone,
+        _special_requests: specialRequests || null,
+        _status: "pending",
+        _payment_status: "pending",
+      });
 
       if (error) {
-        console.error("Insert error:", JSON.stringify(error, null, 2))
-        alert(`Booking failed: ${error.message}`)
-        setSubmitting(false)
-        return
+        console.error("Booking failed:", error);
+        alert(`Booking failed: ${error.message}`);
+        return;
       }
 
-      // ➜ redirect to confirmation page
-      const ref = data?.booking_number || data?.id
-      if (ref) {
-        router.push(`/confirmation?ref=${encodeURIComponent(ref)}`)
-        return
-      }
-
-      // Fallback (shouldn't happen): show success inline
-      alert(`Booking submitted! 🎉 Reference: ${data?.id}`)
+      // data is the inserted booking row
+      const ref = (data as any)?.booking_number || (data as any)?.id;
+      router.push(`/confirmation?ref=${encodeURIComponent(ref)}`);
     } finally {
       setSubmitting(false)
     }

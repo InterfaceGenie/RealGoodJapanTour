@@ -11,7 +11,6 @@ import { Star, Clock, Users, MapPin, Compass, Search } from "lucide-react";
 
 type TourRow = {
     id: string;
-    external_id: string | null;
     title: string;
     short_title: string | null;
     price: number | null;
@@ -35,7 +34,7 @@ export default function ToursPage() {
         (async () => {
             setLoading(true); setError(null);
             const cols = `
-        id, external_id, title, short_title, price, duration, max_guests,
+        id, title, short_title, price, duration, max_guests,
         rating, reviews, image, description, pickup_restrictions
       `;
             const { data, error } = await supabase.from("tours").select(cols).order("title", { ascending: true });
@@ -96,7 +95,7 @@ export default function ToursPage() {
                     {!loading && !error && (
                         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-8 max-w-7xl mx-auto">
                             {filtered.map((t) => {
-                                const slug = t.id; // links to /tours/[id]
+                                const slug = t.id;
                                 return (
                                     <Link key={t.id} href={`/tours/${slug}`} className="group">
                                         <div className="relative overflow-hidden rounded-2xl shadow-xl hover:shadow-2xl transition-all duration-500 bg-white">

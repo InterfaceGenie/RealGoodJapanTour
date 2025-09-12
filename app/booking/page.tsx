@@ -17,7 +17,7 @@ import { MapPicker } from "@/components/map-picker";
 import { Star, Users, Clock, MapPin, CheckCircle, MessageCircle, Mail } from "lucide-react";
 
 type UITour = {
-  id: string;        // human-facing id (external_id || id)
+  id: string;
   dbId: string;      // real uuid (tours.id)
   title: string;
   shortTitle?: string;
@@ -84,7 +84,7 @@ export default function BookingGridPage() {
       setError(null);
 
       const columns = `
-        id, external_id, title, short_title, price, duration, max_guests,
+        id, title, short_title, price, duration, max_guests,
         rating, reviews, image, highlights, description, pickup_restrictions
       `;
       const { data, error } = await supabase
@@ -102,7 +102,7 @@ export default function BookingGridPage() {
       }
 
       const mapped: UITour[] = (data || []).map((t: any) => ({
-        id: (t.external_id as string) || (t.id as string),
+        id: (t.id as string),
         dbId: t.id as string,
         title: t.title,
         shortTitle: t.short_title ?? undefined,
@@ -145,36 +145,39 @@ export default function BookingGridPage() {
     if (!sqlTime) { alert("Invalid time format."); return; }
 
     setSubmitting(true);
-    const { data, error } = await supabase
-      .from("bookings")
-      .insert({
-        tour_id: selectedTour.dbId,       // ✅ uuid
-        tour_date: selectedDate,
-        tour_time: sqlTime,
-        guests,
-        total_price: totalPrice,
-        pickup_location: pickup.address,
-        pickup_lat: pickup.lat,
-        pickup_lng: pickup.lng,
-        customer_name: customerName,
-        customer_email: customerEmail,
-        customer_phone: customerPhone,
-        special_requests: specialRequests || null,
-        status: "pending",
-        payment_status: "pending",
-      })
-      .select("id, booking_number")
-      .single();
+    const { data, error } = await supabase.rpc("book_tour_atomic_by_date", {
+      _tour_id: selectedTour.dbId,          // uuid of tours.id
+      _tour_date: selectedDate,             // 'YYYY-MM-DD'
+      _tour_time: sqlTime,                  // 'HH:MM:SS'
+      _guests: guests,
+      _total_price: totalPrice,
+      _pickup_location: pickup.address,
+      _pickup_lat: pickup.lat,
+      _pickup_lng: pickup.lng,
+      _customer_name: customerName,
+      _customer_email: customerEmail,
+      _customer_phone: customerPhone,
+      _special_requests: specialRequests || null,
+      _status: "pending",
+      _payment_status: "pending",
+    });
+
     setSubmitting(false);
 
     if (error) {
-      console.error("Insert error:", error);
+      if ((error as any)?.message?.includes("book_tour_atomic")) {
+        console.error("Did you run the SQL to create book_tour_atomic?");
+      }
+      console.error("Booking failed:", error);
       alert(`Booking failed: ${error.message}`);
       return;
     }
-
-    const ref = data?.booking_number || data?.id;
-    router.push(`/confirmation?ref=${ref}`);
+    const ref = (data as any)?.booking_number || (data as any)?.id;
+    if (!ref) {
+      alert("Booked, but no reference returned. Please check your database function return.");
+      return;
+    }
+    router.push(`/confirmation?ref=${encodeURIComponent(ref)}`);
   };
 
   if (loading) return <div className="min-h-screen flex items-center justify-center text-slate-600">Loading tours…</div>;
@@ -264,37 +267,91 @@ export default function BookingGridPage() {
             )}
           </div>
 
-          {/* Right: booking form (same fields/UX) */}
+          {/* Right: booking form (styled like the Tour ID page) */}
           <div>
-            <Card className="shadow-xl border-0 bg-white/80 backdrop-blur-sm">
-              <CardHeader className="bg-gradient-to-r from-amber-600 to-orange-600 text-white rounded-t-lg">
-                <CardTitle className="text-2xl">Book This Tour</CardTitle>
-                <CardDescription className="text-amber-100">
-                  {selectedTour
-                    ? `${new Intl.NumberFormat("ja-JP", { style: "currency", currency: "JPY", minimumFractionDigits: 0 }).format(selectedTour.price)} per person`
-                    : "Select a tour first"}
+            <Card className="shadow-2xl border-0 bg-white/90 backdrop-blur">
+              <CardHeader className="bg-gradient-to-r from-amber-600 to-orange-600 text-white rounded-t-[18px]">
+                <CardTitle className="text-3xl font-extrabold tracking-tight">
+                  Book This Tour
+                </CardTitle>
+                <CardDescription className="text-amber-100 text-base mt-1">
+                  Secure your spot on this amazing experience
                 </CardDescription>
               </CardHeader>
-              <CardContent className="p-6">
-                <form onSubmit={handleBooking} className="space-y-6">
-                  <div className="bg-gradient-to-r from-amber-50 to-orange-50 rounded-lg p-4">
-                    <div className="flex justify-between items-center mb-2">
-                      <span className="text-slate-600">
-                        {new Intl.NumberFormat("ja-JP", { style: "currency", currency: "JPY", minimumFractionDigits: 0 }).format(selectedTour?.price ?? 0)}
-                        {" "}× {guests} {guests !== 1 ? "guests" : "guest"}
-                      </span>
-                      <span className="font-semibold text-slate-900">{formattedPrice}</span>
+
+              <CardContent className="p-6 sm:p-8">
+                <form onSubmit={handleBooking} className="space-y-7">
+                  {/* Number of Guests */}
+                  <div className="space-y-3">
+                    <Label className="text-lg font-semibold text-slate-900">Number of Guests</Label>
+                    <div className="flex items-center justify-between bg-amber-50/70 rounded-2xl p-4 sm:p-5 border border-amber-200">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        onClick={() => setGuests((g) => Math.max(1, g - 1))}
+                        className="h-10 w-10 rounded-xl border-amber-200 text-amber-700 hover:bg-amber-50"
+                      >
+                        –
+                      </Button>
+
+                      <div className="text-center select-none">
+                        <div className="text-3xl font-extrabold text-slate-900 leading-none">{guests}</div>
+                        <div className="text-base text-slate-600 mt-1">{guests === 1 ? "guest" : "guests"}</div>
+                      </div>
+
+                      <Button
+                        type="button"
+                        variant="outline"
+                        onClick={() =>
+                          setGuests((g) => Math.min(selectedTour?.maxGuests ?? 1, g + 1))
+                        }
+                        className="h-10 w-10 rounded-xl border-amber-200 text-amber-700 hover:bg-amber-50"
+                      >
+                        +
+                      </Button>
                     </div>
                   </div>
 
+                  {/* Total panel */}
+                  <div className="rounded-2xl border border-amber-200 bg-gradient-to-b from-amber-50/70 to-amber-50/40 p-5">
+                    <div className="flex items-center justify-between text-slate-700 mb-2">
+                      <span className="text-lg">
+                        {new Intl.NumberFormat("ja-JP", { style: "currency", currency: "JPY", minimumFractionDigits: 0 })
+                          .format(selectedTour?.price ?? 0)}{" "}
+                        × {guests} {guests === 1 ? "guest" : "guests"}
+                      </span>
+                      <span className="font-semibold">
+                        {formattedPrice}
+                      </span>
+                    </div>
+                    <div className="h-px bg-amber-200 my-2" />
+                    <div className="flex items-center justify-between">
+                      <span className="text-2xl font-bold text-slate-900">Total</span>
+                      <span className="text-3xl font-extrabold text-amber-600">{formattedPrice}</span>
+                    </div>
+                  </div>
+
+                  {/* Date / Time */}
                   <div className="grid md:grid-cols-2 gap-4">
                     <div>
                       <Label className="text-sm font-semibold mb-2 block text-slate-900">Preferred Date *</Label>
-                      <Input type="date" value={selectedDate} onChange={(e) => setSelectedDate(e.target.value)} required min={new Date().toISOString().split("T")[0]} />
+                      <Input
+                        type="date"
+                        value={selectedDate}
+                        onChange={(e) => setSelectedDate(e.target.value)}
+                        required
+                        min={new Date().toISOString().split("T")[0]}
+                        className="h-12 rounded-xl border-2 border-amber-200 focus-visible:ring-amber-500"
+                      />
                     </div>
                     <div>
                       <Label className="text-sm font-semibold mb-2 block text-slate-900">Preferred Time *</Label>
-                      <select value={selectedTime} onChange={(e) => setSelectedTime(e.target.value)} className="w-full px-3 py-2 border rounded-md" required>
+                      <select
+                        value={selectedTime}
+                        onChange={(e) => setSelectedTime(e.target.value)}
+                        required
+                        className="h-12 w-full rounded-xl border-2 border-amber-200 bg-white px-3 focus:outline-none focus:ring-2 focus:ring-amber-500"
+                      >
                         <option value="">Select time</option>
                         <option value="8:00 AM">8:00 AM</option>
                         <option value="8:30 AM">8:30 AM</option>
@@ -308,65 +365,108 @@ export default function BookingGridPage() {
                     </div>
                   </div>
 
+                  {/* Pickup */}
                   <div>
                     <Label className="text-sm font-semibold mb-2 block text-slate-900">Pickup Location *</Label>
-                    <MapPicker
-                      tourId={selectedTour?.id || ""}
-                      restrictions={selectedTour?.pickupRestrictions || "flexible"}
-                      onLocationSelect={(v: any) => setPickup(normPick(v))}
-                      selectedLocation={pickup}
+                    <div className="rounded-xl border-2 border-amber-200 p-2">
+                      <MapPicker
+                        tourId={selectedTour?.id || ""}
+                        restrictions={selectedTour?.pickupRestrictions || "flexible"}
+                        onLocationSelect={(v: any) => setPickup(normPick(v))}
+                        selectedLocation={pickup}
+                      />
+                    </div>
+                    {/* native required fallback */}
+                    <input
+                      tabIndex={-1}
+                      style={{ position: "absolute", opacity: 0, pointerEvents: "none", height: 0, width: 0 }}
+                      value={pickup.address}
+                      onChange={() => { }}
+                      required
                     />
-                    {/* hidden input to satisfy native required for custom component */}
-                    <input tabIndex={-1} style={{ position: "absolute", opacity: 0, pointerEvents: "none", height: 0, width: 0 }}
-                      value={pickup.address} onChange={() => { }} required />
                   </div>
 
+                  {/* Contact info */}
                   <div className="space-y-4">
                     <div>
                       <Label className="text-sm font-semibold mb-2 block text-slate-900">Full Name *</Label>
-                      <Input value={customerName} onChange={(e) => setCustomerName(e.target.value)} required />
+                      <Input
+                        value={customerName}
+                        onChange={(e) => setCustomerName(e.target.value)}
+                        required
+                        className="h-12 rounded-xl border-2 border-amber-200 focus-visible:ring-amber-500"
+                      />
                     </div>
                     <div>
                       <Label className="text-sm font-semibold mb-2 block text-slate-900">Email Address *</Label>
-                      <Input type="email" value={customerEmail} onChange={(e) => setCustomerEmail(e.target.value)} required />
+                      <Input
+                        type="email"
+                        value={customerEmail}
+                        onChange={(e) => setCustomerEmail(e.target.value)}
+                        required
+                        className="h-12 rounded-xl border-2 border-amber-200 focus-visible:ring-amber-500"
+                      />
                     </div>
                     <div>
                       <Label className="text-sm font-semibold mb-2 block text-slate-900">WhatsApp Number *</Label>
-                      <Input value={customerPhone} onChange={(e) => setCustomerPhone(e.target.value)} required />
+                      <Input
+                        value={customerPhone}
+                        onChange={(e) => setCustomerPhone(e.target.value)}
+                        required
+                        className="h-12 rounded-xl border-2 border-amber-200 focus-visible:ring-amber-500"
+                      />
                     </div>
                     <div>
-                      <Label className="text-sm font-semibold mb-2 block text-slate-900">Special Requests</Label>
-                      <Textarea rows={3} value={specialRequests} onChange={(e) => setSpecialRequests(e.target.value)} />
+                      <Label className="text-sm font-semibold mb-2 block text-slate-900">Special Requests or Dietary Restrictions</Label>
+                      <Textarea
+                        rows={3}
+                        value={specialRequests}
+                        onChange={(e) => setSpecialRequests(e.target.value)}
+                        className="rounded-xl border-2 border-amber-200 focus-visible:ring-amber-500"
+                      />
                     </div>
                   </div>
 
+                  {/* Terms */}
                   <div className="flex items-start space-x-3">
-                    <Checkbox checked={agreedToTerms} onCheckedChange={(v) => setAgreedToTerms(Boolean(v))} />
+                    <Checkbox
+                      checked={agreedToTerms}
+                      onCheckedChange={(v) => setAgreedToTerms(Boolean(v))}
+                      className="border-amber-300 data-[state=checked]:bg-amber-600"
+                    />
                     <Label className="text-sm text-slate-700 leading-relaxed">
                       I agree to the terms and conditions. Payment will be collected on the day of the tour. Cancellations must be made at least 24 hours in advance.
                     </Label>
                   </div>
 
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center space-x-4">
-                      <Button type="button" variant="outline" onClick={() => setGuests((g) => Math.max(1, g - 1))}>−</Button>
-                      <div className="text-lg font-semibold">{guests}</div>
-                      <Button type="button" variant="outline" onClick={() => setGuests((g) => Math.min(selectedTour?.maxGuests ?? 1, g + 1))}>+</Button>
-                    </div>
-                    <Button type="submit" disabled={!selectedTour || !agreedToTerms || submitting}
-                      className="bg-gradient-to-r from-amber-600 to-orange-600 text-white">
-                      {submitting ? "Submitting…" : "Book Now - Pay on Tour Day"}
-                    </Button>
-                  </div>
+                  {/* Submit */}
+                  <Button
+                    type="submit"
+                    disabled={!selectedTour || !agreedToTerms || submitting}
+                    className="w-full h-12 text-lg font-semibold rounded-2xl bg-gradient-to-r from-amber-600 to-orange-600 hover:from-amber-700 hover:to-orange-700 text-white shadow-lg"
+                  >
+                    {submitting ? "Submitting…" : "Book Now - Pay on Tour Day"}
+                  </Button>
 
-                  <div className="text-center pt-4 border-t">
+                  {/* Contacts */}
+                  <div className="text-center pt-4 border-t border-amber-200">
                     <p className="text-sm text-slate-600 mb-3">Questions? Contact us directly:</p>
                     <div className="space-y-2">
-                      <a href="https://wa.me/818014786114" target="_blank" rel="noopener noreferrer" className="flex items-center justify-center text-amber-600">
-                        <MessageCircle className="h-4 w-4 mr-2" /> +81 80 1478 6114
+                      <a
+                        href="https://wa.me/818014786114"
+                        className="inline-flex items-center justify-center text-amber-600 hover:text-amber-700 font-medium"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                      >
+                        <MessageCircle className="h-4 w-4 mr-2" />
+                        +81 80 1478 6114
                       </a>
-                      <a href="mailto:realgoodjapantour@gmail.com" className="flex items-center justify-center text-amber-600">
-                        <Mail className="h-4 w-4 mr-2" /> realgoodjapantour@gmail.com
+                      <a
+                        href="mailto:realgoodjapantour@gmail.com"
+                        className="block text-amber-600 hover:text-amber-700 font-medium"
+                      >
+                        <Mail className="h-4 w-4 mr-2 inline" />
+                        realgoodjapantour@gmail.com
                       </a>
                     </div>
                   </div>
