@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useEffect } from "react"
-import { useParams } from "next/navigation"
+import { useParams, useRouter } from "next/navigation"
 import Image from "next/image"
 import Link from "next/link"
 import { supabase } from "@/lib/supabase"
@@ -14,7 +14,6 @@ import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { Checkbox } from "@/components/ui/checkbox"
 import { MapPicker } from "@/components/map-picker"
-import { useRouter } from "next/navigation"
 import {
   Star,
   Users,
@@ -53,6 +52,24 @@ type UITour = {
 }
 
 type PickerValue = { address: string; lat: number; lng: number }
+
+// Reviews (UI) shape
+type Review = {
+  id: string
+  name: string
+  rating: number
+  date: string // ISO string (from trip_date)
+  text: string
+}
+
+// Raw DB row shape
+type DBReviewRow = {
+  id: string
+  customer_name: string
+  rating: number
+  review_text: string | null
+  trip_date: string
+}
 
 // Normalize any shape from MapPicker (string or object) into {address,lat,lng}
 function normalizeToPickerValue(val: any): PickerValue {
@@ -106,57 +123,100 @@ export default function TourDetailPage() {
   const [submitting, setSubmitting] = useState(false)
   const router = useRouter()
 
+  // --- Reviews state (DB-backed) ---
+  const [reviews, setReviews] = useState<Review[]>([])
+  const [reviewsLoading, setReviewsLoading] = useState(false)
+  const [reviewsError, setReviewsError] = useState<string | null>(null)
+
+  // --- Review filters UI ---
+  const [ratingFilter, setRatingFilter] = useState<string>("all") // all | 5 | 4 | 3
+  const [sortBy, setSortBy] = useState<string>("newest")          // newest | highest | lowest
+  const [q, setQ] = useState("")
+
   useEffect(() => {
     let active = true
-      ; (async () => {
-        setLoading(true)
-        setError(null)
-        const columns = `
+    ;(async () => {
+      setLoading(true)
+      setError(null)
+      const columns = `
         id, title, short_title, price, duration, max_guests,
         rating, reviews, image, highlights, description, pickup_restrictions
       `
-        const { data, error } = await supabase
-          .from("tours")
-          .select(columns)
-          .or(`id.eq.${routeId}`)
-          .maybeSingle()
+      const { data, error } = await supabase
+        .from("tours")
+        .select(columns)
+        .or(`id.eq.${routeId}`)
+        .maybeSingle()
 
-        if (!active) return
+      if (!active) return
 
-        if (error) {
-          setError(error.message)
-        } else if (!data) {
-          setError("Tour not found")
-        } else {
-          const mapped: UITour = {
-            id: (data.id as string),
-            dbId: data.id, // REAL uuid
-            title: data.title,
-            shortTitle: data.short_title ?? undefined,
-            price: Number(data.price ?? 0),
-            duration: data.duration ?? "",
-            maxGuests: Number(data.max_guests ?? 1),
-            rating: Number(data.rating ?? 0),
-            reviews: Number(data.reviews ?? 0),
-            images: data.image ? [data.image] : ["/placeholder.svg"],
-            highlights: Array.isArray(data.highlights) ? data.highlights : [],
-            description: data.description ?? "",
-            pickupRestrictions: data.pickup_restrictions ?? "flexible",
-            longDescription: data.description ?? "",
-            itinerary: [],
-            included: [],
-            notIncluded: [],
-            bookingNotes: "",
-          }
-          setTour(mapped)
+      if (error) {
+        setError(error.message)
+      } else if (!data) {
+        setError("Tour not found")
+      } else {
+        const mapped: UITour = {
+          id: (data.id as string),
+          dbId: data.id, // REAL uuid
+          title: data.title,
+          shortTitle: data.short_title ?? undefined,
+          price: Number(data.price ?? 0),
+          duration: data.duration ?? "",
+          maxGuests: Number(data.max_guests ?? 1),
+          rating: Number(data.rating ?? 0),
+          reviews: Number(data.reviews ?? 0),
+          images: data.image ? [data.image] : ["/placeholder.svg"],
+          highlights: Array.isArray(data.highlights) ? data.highlights : [],
+          description: data.description ?? "",
+          pickupRestrictions: data.pickup_restrictions ?? "flexible",
+          longDescription: data.description ?? "",
+          itinerary: [],
+          included: [],
+          notIncluded: [],
+          bookingNotes: "",
         }
-        setLoading(false)
-      })()
+        setTour(mapped)
+      }
+      setLoading(false)
+    })()
 
     return () => {
       active = false
     }
   }, [routeId])
+
+  // Fetch reviews for this tour once tour is known
+  useEffect(() => {
+    if (!tour?.dbId) return
+    let active = true
+    ;(async () => {
+      setReviewsLoading(true)
+      setReviewsError(null)
+      const { data, error } = await supabase
+        .from("reviews")
+        .select("id, customer_name, rating, review_text, trip_date")
+        .eq("tour_id", tour.dbId)
+        .order("trip_date", { ascending: false })
+
+      if (!active) return
+      if (error) {
+        setReviewsError(error.message)
+        setReviews([])
+      } else {
+        const mapped: Review[] = (data as DBReviewRow[]).map(r => ({
+          id: r.id,
+          name: r.customer_name,
+          rating: Number(r.rating || 0),
+          date: r.trip_date,
+          text: r.review_text ?? ""
+        }))
+        setReviews(mapped)
+      }
+      setReviewsLoading(false)
+    })()
+
+    return () => { active = false }
+  }, [tour?.dbId])
 
   const totalPrice = (tour?.price ?? 0) * guests
   const formattedPrice = new Intl.NumberFormat("ja-JP", {
@@ -193,23 +253,6 @@ export default function TourDetailPage() {
 
     setSubmitting(true)
 
-    const insertPayload = {
-      tour_id: tour.dbId, // REAL FK to tours.id
-      tour_date: selectedDate,
-      tour_time: timeSql,
-      guests,
-      total_price: totalPrice,
-      pickup_location: pickup.address,
-      pickup_lat: toNullable(pickup.lat),
-      pickup_lng: toNullable(pickup.lng),
-      customer_name: customerName,
-      customer_email: customerEmail,
-      customer_phone: customerPhone,
-      special_requests: specialRequests || null,
-      status: "pending",
-      payment_status: "pending",
-    }
-
     try {
       const { data, error } = await supabase.rpc("book_tour_atomic_by_date", {
         _tour_id: tour.dbId,
@@ -240,7 +283,6 @@ export default function TourDetailPage() {
     } finally {
       setSubmitting(false)
     }
-
   }
 
   if (loading) {
@@ -265,6 +307,33 @@ export default function TourDetailPage() {
     )
   }
 
+  // --- Reviews helpers ---
+  const filteredReviews = reviews
+    .filter(r => ratingFilter === "all" ? true : ratingFilter === "3" ? r.rating >= 3 : r.rating === Number(ratingFilter))
+    .filter(r => (q ? (r.text + " " + r.name).toLowerCase().includes(q.toLowerCase()) : true))
+    .sort((a, b) => {
+      if (sortBy === "newest") return (+new Date(b.date)) - (+new Date(a.date))
+      if (sortBy === "highest") return b.rating - a.rating
+      if (sortBy === "lowest") return a.rating - b.rating
+      return 0
+    })
+
+  const avgRating =
+    reviews.length ? Math.round((reviews.reduce((s, r) => s + r.rating, 0) / reviews.length) * 10) / 10 : 0
+
+  const Stars = ({ value }: { value: number }) => {
+    return (
+      <div className="flex items-center">
+        {Array.from({ length: 5 }).map((_, i) => (
+          <Star
+            key={i}
+            className={`h-4 w-4 mr-0.5 ${i < value ? "text-amber-500 fill-current" : "text-slate-300"}`}
+          />
+        ))}
+      </div>
+    )
+  }
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-amber-50/30">
       <PageHeader />
@@ -280,8 +349,7 @@ export default function TourDetailPage() {
               </Badge>
               <div className="flex items-center">
                 <Star className="h-5 w-5 text-amber-500 fill-current mr-1" />
-                <span className="font-semibold mr-2">{tour.rating}</span>
-                <span className="text-slate-500">({tour.reviews} reviews)</span>
+                <span className="ml-2 text-sm">{avgRating} / 5 · {reviews.length} reviews</span>
               </div>
             </div>
             <h1 className="text-4xl md:text-5xl font-bold mb-4 bg-gradient-to-r from-slate-900 to-amber-800 bg-clip-text text-transparent">
@@ -423,6 +491,83 @@ export default function TourDetailPage() {
                   </CardContent>
                 </Card>
               </div>
+
+              {/* Reviews */}
+              <Card className="shadow-lg border-0 bg-white/80 backdrop-blur-sm">
+                <CardHeader className="pb-2">
+                  <div className="flex flex-col md:flex-row md:items-end md:justify-between gap-4">
+                    <div>
+                      <CardTitle className="text-2xl text-slate-900">Traveler Reviews</CardTitle>
+                      <div className="mt-2 flex items-center text-slate-600">
+                        <Stars value={Math.round(avgRating)} />
+                        <span className="ml-2 text-sm">{avgRating} / 5 · {reviews.length} reviews</span>
+                      </div>
+                    </div>
+
+                    {/* Filters */}
+                    <div className="flex flex-col sm:flex-row gap-3">
+                      <input
+                        value={q}
+                        onChange={(e) => setQ(e.target.value)}
+                        placeholder="Search reviews…"
+                        className="px-3 py-2 border border-amber-200 rounded-md bg-white text-sm"
+                      />
+                      <select
+                        value={ratingFilter}
+                        onChange={(e) => setRatingFilter(e.target.value)}
+                        className="px-3 py-2 border border-amber-200 rounded-md bg-white text-sm"
+                      >
+                        <option value="all">All ratings</option>
+                        <option value="5">5 stars</option>
+                        <option value="4">4 stars</option>
+                        <option value="3">3 stars & up</option>
+                      </select>
+                      <select
+                        value={sortBy}
+                        onChange={(e) => setSortBy(e.target.value)}
+                        className="px-3 py-2 border border-amber-200 rounded-md bg-white text-sm"
+                      >
+                        <option value="newest">Newest</option>
+                        <option value="highest">Highest rating</option>
+                        <option value="lowest">Lowest rating</option>
+                      </select>
+                    </div>
+                  </div>
+                </CardHeader>
+
+                <CardContent className="space-y-4">
+                  {reviewsLoading && (
+                    <div className="text-slate-600 text-sm">Loading reviews…</div>
+                  )}
+                  {reviewsError && (
+                    <div className="text-red-600 text-sm">Failed to load reviews: {reviewsError}</div>
+                  )}
+                  {!reviewsLoading && !reviewsError && filteredReviews.length === 0 && (
+                    <div className="text-slate-600 text-sm">No reviews match your filter.</div>
+                  )}
+
+                  {filteredReviews.map((r) => (
+                    <div key={r.id} className="flex items-start gap-4 p-4 rounded-xl border border-slate-100 bg-white/70">
+                      {/* Avatar circle with initials */}
+                      <div className="h-10 w-10 rounded-full bg-amber-100 text-amber-800 flex items-center justify-center font-semibold">
+                        {(r.name || "G").slice(0, 1)}
+                      </div>
+
+                      <div className="flex-1">
+                        <div className="flex items-center justify-between">
+                          <div className="font-semibold text-slate-900">{r.name}</div>
+                          <div className="text-xs text-slate-500">{new Date(r.date).toLocaleDateString()}</div>
+                        </div>
+                        <div className="mt-1 flex items-center">
+                          <Stars value={r.rating} />
+                          <span className="ml-2 text-sm text-slate-600">{r.rating}.0</span>
+                        </div>
+                        <p className="mt-2 text-slate-700 leading-relaxed">{r.text}</p>
+                      </div>
+                    </div>
+                  ))}
+                </CardContent>
+              </Card>
             </div>
 
             <div className="lg:col-span-1">

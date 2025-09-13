@@ -155,7 +155,7 @@ export default function HomePage() {
         </div>
       </section>
 
-      {/* Stats */}
+      {/* Stats 
       <section className="py-16 bg-white/50 backdrop-blur-sm">
         <div className="container mx-auto px-4">
           <div className="grid grid-cols-2 md:grid-cols-4 gap-8">
@@ -166,6 +166,7 @@ export default function HomePage() {
           </div>
         </div>
       </section>
+      */}
 
       {/* Featured Tours (from DB) */}
       <section id="tours" className="py-20 bg-gradient-to-b from-white to-slate-50">
