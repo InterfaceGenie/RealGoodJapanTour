@@ -96,51 +96,55 @@ export default function GalleryPage() {
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8 max-w-7xl mx-auto">
               {filtered.map((image) => (
                 <div key={image.id} className="group relative overflow-hidden rounded-2xl shadow-xl hover:shadow-2xl transition-all duration-500 bg-white">
-                  <div className="relative">
-                    <Image
-                      src={image.image_url || "/placeholder.svg"}
-                      alt={image.title}
-                      width={500}
-                      height={400}
-                      className="w-full h-80 object-cover group-hover:scale-105 transition-transform duration-500"
-                    />
-                    <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
-                    <Badge className="absolute top-4 right-4 bg-white/90 text-slate-800 border-0">
-                      {image.category || "Gallery"}
-                    </Badge>
-                    <div className="absolute bottom-6 left-6 text-white opacity-0 group-hover:opacity-100 transition-opacity duration-300">
-                      <h3 className="text-xl font-bold mb-2">{image.title}</h3>
-                      {image.description && (
-                        <p className="text-amber-200 text-sm mb-2">{image.description}</p>
-                      )}
-                      {image.location && (
-                        <div className="flex items-center text-xs text-amber-100">
-                          <MapPin className="h-3 w-3 mr-1" />
-                          {image.location}
-                        </div>
-                      )}
-                    </div>
-                  </div>
-
-                  <div className="p-6">
-                    <h3 className="text-lg font-bold text-slate-900 mb-2">{image.title}</h3>
-                    {image.description && (
-                      <p className="text-slate-600 text-sm mb-3">{image.description}</p>
-                    )}
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center text-xs text-slate-500">
-                        {image.location && (
-                          <>
-                            <MapPin className="h-3 w-3 mr-1" />
-                            {image.location}
-                          </>
-                        )}
-                      </div>
-                      <Badge variant="outline" className="border-amber-200 text-amber-700 text-xs">
+                  <Link key={image.id} href={`/gallery/${image.id}`} className="group block">
+                    <div className="relative">
+                      <Image
+                        src={image.image_url || "/placeholder.svg"}
+                        alt={image.title}
+                        width={500}
+                        height={400}
+                        className="w-full h-80 object-cover group-hover:scale-105 transition-transform duration-500"
+                      />
+                      <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
+                      <Badge className="absolute top-4 right-4 bg-white/90 text-slate-800 border-0">
                         {image.category || "Gallery"}
                       </Badge>
+                      <div className="absolute bottom-6 left-6 text-white opacity-0 group-hover:opacity-100 transition-opacity duration-300">
+                        <h3 className="text-xl font-bold mb-2">{image.title}</h3>
+                        {image.description && (
+                          <p className="text-amber-200 text-sm mb-2">{image.description}</p>
+                        )}
+                        {image.location && (
+                          <div className="flex items-center text-xs text-amber-100">
+                            <MapPin className="h-3 w-3 mr-1" />
+                            {image.location}
+                          </div>
+                        )}
+
+                      </div>
+
                     </div>
-                  </div>
+
+                    <div className="p-6">
+                      <h3 className="text-lg font-bold text-slate-900 mb-2">{image.title}</h3>
+                      {image.description && (
+                        <p className="text-slate-600 text-sm mb-3">{image.description}</p>
+                      )}
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center text-xs text-slate-500">
+                          {image.location && (
+                            <>
+                              <MapPin className="h-3 w-3 mr-1" />
+                              {image.location}
+                            </>
+                          )}
+                        </div>
+                        <Badge variant="outline" className="border-amber-200 text-amber-700 text-xs">
+                          {image.category || "Gallery"}
+                        </Badge>
+                      </div>
+                    </div>
+                  </Link>
                 </div>
               ))}
             </div>
@@ -163,27 +167,6 @@ export default function GalleryPage() {
               <div className="text-3xl font-bold text-amber-600 mb-2">5★</div>
               <div className="text-slate-600">Average Rating</div>
             </div>
-          </div>
-        </div>
-      </section>
-
-      <section className="py-20 bg-gradient-to-br from-slate-900 via-amber-900 to-orange-900 text-white">
-        <div className="container mx-auto px-4 text-center">
-          <h3 className="text-3xl lg:text-4xl font-bold mb-6">Ready to Create Your Own Memories?</h3>
-          <p className="text-xl mb-10 opacity-90 max-w-2xl mx-auto leading-relaxed">
-            Join our exclusive tours and become part of our gallery of unforgettable Japanese experiences.
-          </p>
-          <div className="flex flex-col sm:flex-row gap-6 justify-center">
-            <Button size="lg" className="text-lg px-10 py-7 bg-white text-slate-900 hover:bg-amber-50 shadow-xl hover:shadow-2xl transition-all duration-300" asChild>
-              <Link href="/">
-                <Calendar className="mr-3 h-5 w-5" />
-                Book Your Experience
-              </Link>
-            </Button>
-            <Button size="lg" variant="outline" className="text-lg px-10 py-7 border-2 border-white/50 text-white hover:bg-white/10 shadow-lg">
-              <Users className="mr-3 h-5 w-5" />
-              Private Consultation
-            </Button>
           </div>
         </div>
       </section>

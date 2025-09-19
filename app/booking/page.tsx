@@ -75,7 +75,46 @@ export default function BookingGridPage() {
   const [specialRequests, setSpecialRequests] = useState("");
   const [agreedToTerms, setAgreedToTerms] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  // for image loading
+  const [covers, setCovers] = useState<Record<string, string>>({});
+  const PLACEHOLDER = 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="600"><rect width="100%" height="100%" fill="%23eee"/><text x="50%" y="50%" font-size="28" text-anchor="middle" fill="%23999" dy=".3em">No image</text></svg>';
 
+  useEffect(() => {
+    if (!tours.length) return;
+    let cancelled = false;
+
+    (async () => {
+      // Build entries [tourId, url|null]
+      const entries = await Promise.all(
+        tours.map(async (t) => {
+          const id = t.id?.trim();
+          if (!id) return [t.id, null] as const;
+          // 1) list files in Tours/<id>
+          const { data, error } = await supabase
+            .storage
+            .from("Tours")
+            .list(id, { limit: 200, sortBy: { column: "name", order: "asc" } });
+          if (error || !data?.length) return [id, null] as const;
+
+          // 2) choose first image-looking file
+          const imageFile =
+            data.find(f => /\.(jpe?g|png|webp|gif|avif)$/i.test(f.name)) || data[0];
+
+          // 3) build public URL
+          const path = `${id}/${encodeURIComponent(imageFile.name)}`;
+          const url = supabase.storage.from("Tours").getPublicUrl(path).data.publicUrl;
+          return [id, url] as const;
+        })
+      );
+
+      if (!cancelled) {
+        const map = Object.fromEntries(entries.filter(([_, u]) => !!u) as [string, string][]);
+        setCovers(map);
+      }
+    })();
+
+    return () => { cancelled = true; };
+  }, [tours]);
   // fetch tours (only real columns)
   useEffect(() => {
     let active = true;
@@ -188,88 +227,135 @@ export default function BookingGridPage() {
       <PageHeader />
 
       <div className="container mx-auto px-4 py-10 max-w-7xl">
-        {/* GRID of tours */}
-        <h1 className="text-3xl font-bold mb-6 text-slate-900">Choose Your Tour</h1>
+        {/* Two-column layout: left list, right form */}
+        <div className="grid gap-8 lg:grid-cols-[360px,1fr]">
+          {/* LEFT: Scrollable tours list */}
+          <aside>
+            <div className="sticky top-24">
+              {/* viewport-height list area; adjust 7rem if your header height differs */}
+              <div className="h-[calc(100vh-7rem)] overflow-y-auto pr-2">
+                <h2 className="text-lg font-semibold text-slate-900 mb-3">Choose Your Tour</h2>
 
-        <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
-          {tours.map((t) => {
-            const active = t.id === selectedId;
-            return (
-              <Card
-                key={t.id}
-                className={`overflow-hidden border ${active ? "border-amber-400 shadow-amber-200 shadow-lg" : "border-slate-200 shadow"} transition`}
-              >
-                <div className="relative h-48 w-full">
-                  <Image src={t.image || "/placeholder.svg"} alt={t.title} fill className="object-cover" />
-                </div>
-                <CardContent className="p-4 space-y-2">
-                  <div className="flex items-start justify-between">
-                    <div className="font-semibold text-slate-900 line-clamp-2">{t.title}</div>
-                    <Badge className="ml-3 bg-amber-100 text-amber-800 border-amber-200">
-                      {new Intl.NumberFormat("ja-JP", { style: "currency", currency: "JPY", minimumFractionDigits: 0 }).format(t.price)}
-                    </Badge>
-                  </div>
-                  <div className="flex items-center text-sm text-slate-600">
-                    <Star className="h-4 w-4 text-amber-500 fill-current mr-1" /> {t.rating} · {t.reviews} reviews
-                  </div>
-                  <div className="flex items-center text-xs text-slate-500">
-                    <Clock className="h-3.5 w-3.5 mr-1" /> {t.duration}
-                  </div>
-                  <Button onClick={() => onChooseTour(t.id)} className="w-full mt-3 bg-gradient-to-r from-amber-600 to-orange-600">
-                    {active ? "Selected" : "Select"}
-                  </Button>
-                </CardContent>
-              </Card>
-            );
-          })}
-          {!tours.length && <div className="text-slate-600">No tours found.</div>}
-        </div>
+                {tours.map((t) => {
+                  const active = t.id === selectedId;
+                  return (
+                    <button
+                      key={t.id}
+                      onClick={() => onChooseTour(t.id)}
+                      className={[
+                        "w-full text-left rounded-xl border transition mb-3",
+                        active
+                          ? "border-amber-400 bg-amber-50/60 shadow"
+                          : "border-slate-200 bg-white hover:bg-amber-50/40"
+                      ].join(" ")}
+                    >
+                      <div className="flex gap-3 p-3">
+                        <div className="relative h-16 w-24 shrink-0 rounded-lg overflow-hidden bg-slate-100">
+                          <Image
+                            src={covers[t.id] || t.image || PLACEHOLDER}
+                            alt={t.title}
+                            fill
+                            sizes="96px"
+                            className="object-cover"
+                          />
+                        </div>
 
-        {/* DETAILS + BOOKING FORM (same feel as tour page) */}
-        <div ref={formRef} className="mt-12 grid lg:grid-cols-2 gap-10">
-          {/* Left: selected tour overview */}
-          <div>
-            {selectedTour ? (
-              <Card className="shadow-lg border-0 bg-white/80 backdrop-blur-sm">
-                <CardHeader>
-                  <CardTitle className="text-2xl text-slate-900">{selectedTour.title}</CardTitle>
-                  <CardDescription className="text-slate-600">
-                    <div className="flex flex-wrap items-center gap-4 mt-2">
-                      <span className="inline-flex items-center"><Clock className="h-5 w-5 text-amber-600 mr-2" /> {selectedTour.duration}</span>
-                      <span className="inline-flex items-center"><Users className="h-5 w-5 text-amber-600 mr-2" /> 1–{selectedTour.maxGuests} guests</span>
-                      <span className="inline-flex items-center"><MapPin className="h-5 w-5 text-amber-600 mr-2" /> Japan</span>
-                    </div>
-                  </CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  {selectedTour.image && (
-                    <div className="relative h-60 w-full rounded-lg overflow-hidden">
-                      <Image src={selectedTour.image} alt={selectedTour.title} fill className="object-cover" />
-                    </div>
-                  )}
-                  {!!selectedTour.highlights.length && (
-                    <>
-                      <h3 className="font-semibold text-slate-900">Highlights</h3>
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                        {selectedTour.highlights.map((h, i) => (
-                          <div key={i} className="flex items-center">
-                            <CheckCircle className="h-5 w-5 text-green-600 mr-3" />
-                            <span className="text-slate-700">{h}</span>
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-start justify-between gap-2">
+                            <p className="font-semibold text-slate-900 line-clamp-1">{t.title}</p>
+                            <Badge className="bg-amber-100 text-amber-800 border-amber-200 shrink-0">
+                              {new Intl.NumberFormat("ja-JP", {
+                                style: "currency",
+                                currency: "JPY",
+                                minimumFractionDigits: 0
+                              }).format(t.price)}
+                            </Badge>
                           </div>
-                        ))}
-                      </div>
-                    </>
-                  )}
-                </CardContent>
-              </Card>
-            ) : (
-              <Card className="shadow-lg border-0 bg-white/80 backdrop-blur-sm"><CardContent className="p-8">Select a tour above to see details.</CardContent></Card>
-            )}
-          </div>
 
-          {/* Right: booking form (styled like the Tour ID page) */}
-          <div>
-            <Card className="shadow-2xl border-0 bg-white/90 backdrop-blur">
+                          <div className="mt-1 flex items-center text-xs text-slate-600 gap-3">
+                            <span className="inline-flex items-center">
+                              <Star className="h-3.5 w-3.5 text-amber-500 fill-current mr-1" />
+                              {t.rating} · {t.reviews}
+                            </span>
+                            <span className="inline-flex items-center">
+                              <Clock className="h-3.5 w-3.5 mr-1 text-amber-600" />
+                              {t.duration}
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+                    </button>
+                  );
+                })}
+
+                {!tours.length && (
+                  <div className="text-slate-600">No tours found.</div>
+                )}
+              </div>
+            </div>
+          </aside>
+
+          {/* RIGHT: selected details + booking form */}
+          <section className="space-y-8">
+            {/* Selected tour summary (non-sticky) */}
+            <div>
+              {selectedTour ? (
+                <Card className="shadow-lg border-0 bg-white/80 backdrop-blur-sm">
+                  <CardHeader>
+                    <CardTitle className="text-2xl text-slate-900">{selectedTour.title}</CardTitle>
+                    <CardDescription className="text-slate-600">
+                      <div className="flex flex-wrap items-center gap-4 mt-2">
+                        <span className="inline-flex items-center">
+                          <Clock className="h-5 w-5 text-amber-600 mr-2" /> {selectedTour.duration}
+                        </span>
+                        <span className="inline-flex items-center">
+                          <Users className="h-5 w-5 text-amber-600 mr-2" /> 1–{selectedTour.maxGuests} guests
+                        </span>
+                        <span className="inline-flex items-center">
+                          <MapPin className="h-5 w-5 text-amber-600 mr-2" /> Japan
+                        </span>
+                      </div>
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent className="space-y-4">
+                    {(covers[selectedTour.id] || selectedTour.image) && (
+                      <div className="relative h-60 w-full rounded-lg overflow-hidden">
+                        <Image
+                          src={covers[selectedTour.id] || selectedTour.image!}
+                          alt={selectedTour.title}
+                          fill
+                          sizes="(max-width: 1024px) 100vw, 700px"
+                          className="object-cover"
+                        />
+                      </div>
+                    )}
+
+                    {!!selectedTour.highlights.length && (
+                      <>
+                        <h3 className="font-semibold text-slate-900">Highlights</h3>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                          {selectedTour.highlights.map((h, i) => (
+                            <div key={i} className="flex items-center">
+                              <CheckCircle className="h-5 w-5 text-green-600 mr-3" />
+                              <span className="text-slate-700">{h}</span>
+                            </div>
+                          ))}
+                        </div>
+                      </>
+                    )}
+                  </CardContent>
+                </Card>
+              ) : (
+                <Card className="shadow-lg border-0 bg-white/80 backdrop-blur-sm">
+                  <CardContent className="p-8">
+                    Select a tour on the left to see details.
+                  </CardContent>
+                </Card>
+              )}
+            </div>
+
+            {/* Booking form (sticky so it stays aligned with the list) */}
+            <Card className="shadow-2xl border-0 bg-white/90 backdrop-blur sticky top-24">
               <CardHeader className="bg-gradient-to-r from-amber-600 to-orange-600 text-white rounded-t-[18px]">
                 <CardTitle className="text-3xl font-extrabold tracking-tight">
                   Book This Tour
@@ -473,9 +559,9 @@ export default function BookingGridPage() {
                 </form>
               </CardContent>
             </Card>
-          </div>
+          </section>
         </div>
       </div>
-    </div>
+    </div >
   );
 }

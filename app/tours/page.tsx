@@ -28,6 +28,46 @@ export default function ToursPage() {
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
     const [query, setQuery] = useState("");
+    // for image loading
+    const [covers, setCovers] = useState<Record<string, string>>({});
+    const PLACEHOLDER = 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="600"><rect width="100%" height="100%" fill="%23eee"/><text x="50%" y="50%" font-size="28" text-anchor="middle" fill="%23999" dy=".3em">No image</text></svg>';
+
+    useEffect(() => {
+        if (!tours.length) return;
+        let cancelled = false;
+
+        (async () => {
+            // Build entries [tourId, url|null]
+            const entries = await Promise.all(
+                tours.map(async (t) => {
+                    const id = t.id?.trim();
+                    if (!id) return [t.id, null] as const;
+                    // 1) list files in Tours/<id>
+                    const { data, error } = await supabase
+                        .storage
+                        .from("Tours")
+                        .list(id, { limit: 200, sortBy: { column: "name", order: "asc" } });
+                    if (error || !data?.length) return [id, null] as const;
+
+                    // 2) choose first image-looking file
+                    const imageFile =
+                        data.find(f => /\.(jpe?g|png|webp|gif|avif)$/i.test(f.name)) || data[0];
+
+                    // 3) build public URL
+                    const path = `${id}/${encodeURIComponent(imageFile.name)}`;
+                    const url = supabase.storage.from("Tours").getPublicUrl(path).data.publicUrl;
+                    return [id, url] as const;
+                })
+            );
+
+            if (!cancelled) {
+                const map = Object.fromEntries(entries.filter(([_, u]) => !!u) as [string, string][]);
+                setCovers(map);
+            }
+        })();
+
+        return () => { cancelled = true; };
+    }, [tours]);
 
     useEffect(() => {
         let mounted = true;
@@ -101,7 +141,7 @@ export default function ToursPage() {
                                         <div className="relative overflow-hidden rounded-2xl shadow-xl hover:shadow-2xl transition-all duration-500 bg-white">
                                             <div className="relative h-64 w-full">
                                                 <Image
-                                                    src={t.image || "/placeholder.svg"}
+                                                    src={covers[t.id] || t.image || PLACEHOLDER}
                                                     alt={t.title}
                                                     fill
                                                     className="object-cover group-hover:scale-105 transition-transform duration-500"

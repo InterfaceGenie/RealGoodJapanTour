@@ -27,10 +27,16 @@ export default function PageHeader() {
           </nav>
           <nav className="hidden md:flex items-center space-x-8">
             <Link href="/tours" className="text-sm font-medium text-slate-700 hover:text-amber-600 transition-colors">
-              Premium Tours
+              Tours
             </Link>
             <Link href="/gallery" className="text-sm font-medium text-slate-700 hover:text-amber-600 transition-colors">
               Gallery
+            </Link>
+            <Link href="/search" className="text-sm font-medium text-slate-700 hover:text-amber-600 transition-colors">
+              Search
+            </Link>
+            <Link href="/review" className="text-sm font-medium text-slate-700 hover:text-amber-600 transition-colors">
+              Review
             </Link>
             <Link href="/contact" className="text-sm font-medium text-slate-700 hover:text-amber-600 transition-colors">
               Contact

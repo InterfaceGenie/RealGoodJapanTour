@@ -9,6 +9,7 @@ import Image from "next/image"
 import Link from "next/link"
 import PageHeader from "@/components/page-header"
 import { supabase } from "@/lib/supabase/browser"
+import { CheckCircle } from "lucide-react";
 
 /** DB types (match your schema) */
 type TourRow = {
@@ -43,7 +44,63 @@ const testimonials = [
   { id: 3, name: "Aida H.", date: "June 2025", title: "Piners visiting Kyoto", rating: 5, review: "Full day in Kyoto with the best guide...", experience: "Kyoto Full Day Experience" },
   { id: 4, name: "Rosalinda M.", date: "June 2025", title: "My first visit in Japan is awesome", rating: 5, review: "My sister and I first visit to Japan was awesome...", experience: "First Japan Experience" }
 ]
+export function SponsorSection() {
+  return (
+    <section className="relative py-6 bg-orange-300/30">
+      <div className="container mx-auto px-4">
+        <div className="relative overflow-hidden rounded-3xl border border-amber-200/60 bg-gradient-to-br from-amber-50 via-white to-amber-50 shadow-lg">
+          {/* soft glow blobs */}
+          <div className="pointer-events-none absolute -top-24 -right-28 h-72 w-72 rounded-full bg-orange-300/30 blur-3xl" />
+          <div className="pointer-events-none absolute -bottom-20 -left-24 h-72 w-72 rounded-full bg-amber-300/25 blur-3xl" />
 
+          <div className="grid items-center gap-10 p-8 md:grid-cols-2 md:p-12">
+            <div>
+              <div className="inline-flex items-center rounded-full border border-amber-200 bg-amber-100 px-3 py-1 text-xs font-semibold text-amber-800">
+                Key Partner
+              </div>
+
+              <p className="mt-4 text-slate-600 leading-relaxed">
+                Huge thanks to <span className="font-medium text-slate-900">InterfaceGenie</span> for supporting this project.
+                Their design-to-code magic helps us ship polished UIs faster.
+              </p>
+
+              <ul className="mt-6 grid gap-3 text-sm text-slate-700 sm:grid-cols-2">
+                <li className="flex items-center">
+                  <CheckCircle className="mr-2 h-4 w-4 text-green-600" />
+                  Professional design
+                </li>
+                <li className="flex items-center">
+                  <CheckCircle className="mr-2 h-4 w-4 text-green-600" />
+                  Beautiful, production-ready components
+                </li>
+                <li className="flex items-center">
+                  <CheckCircle className="mr-2 h-4 w-4 text-green-600" />
+                  Faster prototyping & iteration
+                </li>
+                <li className="flex items-center">
+                  <CheckCircle className="mr-2 h-4 w-4 text-green-600" />
+                  Built for modern React/Next apps
+                </li>
+              </ul>
+            </div>
+
+            {/* RIGHT: image */}
+            <div className="relative aspect-square md:aspect-[10/4]">
+              <Image
+                src="/wizard.svg"    
+                alt="InterfaceGenie"
+                fill
+                priority             
+                className="object-contain drop-shadow-sm"
+                sizes="(max-width: 350px) 80vw, 20vw"
+              />
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+}
 export default function HomePage() {
   const [tours, setTours] = useState<TourRow[]>([])
   const [gallery, setGallery] = useState<GalleryRow[]>([])
@@ -364,8 +421,9 @@ export default function HomePage() {
         </div>
       </section>
 
-      {/* CTA + Footer (your existing content) */}
+      {/* CTA + Footer*/}
       <Cta />
+      <SponsorSection />
       <Footer />
     </div>
   )

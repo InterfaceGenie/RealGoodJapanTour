@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useRef } from "react"
 import { useParams, useRouter } from "next/navigation"
 import Image from "next/image"
 import Link from "next/link"
@@ -14,6 +14,7 @@ import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { Checkbox } from "@/components/ui/checkbox"
 import { MapPicker } from "@/components/map-picker"
+import { ChevronLeft, ChevronRight } from "lucide-react"
 import {
   Star,
   Users,
@@ -123,97 +124,188 @@ export default function TourDetailPage() {
   const [submitting, setSubmitting] = useState(false)
   const router = useRouter()
 
-  // --- Reviews state (DB-backed) ---
+  // Reviews state
   const [reviews, setReviews] = useState<Review[]>([])
   const [reviewsLoading, setReviewsLoading] = useState(false)
   const [reviewsError, setReviewsError] = useState<string | null>(null)
 
-  // --- Review filters UI ---
-  const [ratingFilter, setRatingFilter] = useState<string>("all") // all | 5 | 4 | 3
+  // Review filters UI 
+  const [ratingFilter, setRatingFilter] = useState<string>("all")
   const [sortBy, setSortBy] = useState<string>("newest")          // newest | highest | lowest
   const [q, setQ] = useState("")
 
+  //Padington
+  const [page, setPage] = useState(1);
+  const PER_PAGE = 5;
+  const reviewsTopRef = useRef<HTMLDivElement | null>(null);
+
+  // reset to first page on change
+  useEffect(() => {
+    setPage(1);
+  }, [q, ratingFilter, sortBy]);
+
+  useEffect(() => {
+    reviewsTopRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }, [page]);
+
   useEffect(() => {
     let active = true
-    ;(async () => {
-      setLoading(true)
-      setError(null)
-      const columns = `
+      ; (async () => {
+        setLoading(true)
+        setError(null)
+        const columns = `
         id, title, short_title, price, duration, max_guests,
         rating, reviews, image, highlights, description, pickup_restrictions
       `
-      const { data, error } = await supabase
-        .from("tours")
-        .select(columns)
-        .or(`id.eq.${routeId}`)
-        .maybeSingle()
+        const { data, error } = await supabase
+          .from("tours")
+          .select(columns)
+          .or(`id.eq.${routeId}`)
+          .maybeSingle()
 
-      if (!active) return
+        if (!active) return
 
-      if (error) {
-        setError(error.message)
-      } else if (!data) {
-        setError("Tour not found")
-      } else {
-        const mapped: UITour = {
-          id: (data.id as string),
-          dbId: data.id, // REAL uuid
-          title: data.title,
-          shortTitle: data.short_title ?? undefined,
-          price: Number(data.price ?? 0),
-          duration: data.duration ?? "",
-          maxGuests: Number(data.max_guests ?? 1),
-          rating: Number(data.rating ?? 0),
-          reviews: Number(data.reviews ?? 0),
-          images: data.image ? [data.image] : ["/placeholder.svg"],
-          highlights: Array.isArray(data.highlights) ? data.highlights : [],
-          description: data.description ?? "",
-          pickupRestrictions: data.pickup_restrictions ?? "flexible",
-          longDescription: data.description ?? "",
-          itinerary: [],
-          included: [],
-          notIncluded: [],
-          bookingNotes: "",
+        if (error) {
+          setError(error.message)
+        } else if (!data) {
+          setError("Tour not found")
+        } else {
+          const mapped: UITour = {
+            id: (data.id as string),
+            dbId: data.id, // REAL uuid
+            title: data.title,
+            shortTitle: data.short_title ?? undefined,
+            price: Number(data.price ?? 0),
+            duration: data.duration ?? "",
+            maxGuests: Number(data.max_guests ?? 1),
+            rating: Number(data.rating ?? 0),
+            reviews: Number(data.reviews ?? 0),
+            images: data.image ? [data.image] : ["/placeholder.svg"],
+            highlights: Array.isArray(data.highlights) ? data.highlights : [],
+            description: data.description ?? "",
+            pickupRestrictions: data.pickup_restrictions ?? "flexible",
+            longDescription: data.description ?? "",
+            itinerary: [],
+            included: [],
+            notIncluded: [],
+            bookingNotes: "",
+          }
+          setTour(mapped)
         }
-        setTour(mapped)
-      }
-      setLoading(false)
-    })()
+        setLoading(false)
+      })()
 
     return () => {
       active = false
     }
   }, [routeId])
+  // Pic gallery here
+  const [galleryLoading, setGalleryLoading] = useState(false);
+
+  useEffect(() => {
+    if (!tour?.dbId) return;
+    let cancelled = false;
+
+    (async () => {
+      try {
+        setGalleryLoading(true);
+        const folder = tour.dbId.trim();
+        // List files in the tour folder
+        const { data, error } = await supabase
+          .storage
+          .from("Tours")
+          .list(folder, {
+            limit: 100,
+            sortBy: { column: "name", order: "asc" }
+          });
+
+        if (cancelled) return;
+
+        if (error) {
+          console.error("[Storage Error]", error);
+          // Fallback: use placeholder or try alternative approach
+          return;
+        }
+
+        if (!data || data.length === 0) {
+          console.log("[Storage] No files found in folder:", folder);
+          return;
+        }
+
+        // Filter and map image URLs
+        const imageUrls = data
+          .filter(file => {
+            const extension = file.name.toLowerCase().split('.').pop();
+            return ['jpg', 'jpeg', 'png', 'webp', 'gif', 'avif'].includes(extension || '');
+          })
+          .map(file =>
+            supabase.storage.from("Tours").getPublicUrl(`${folder}/${file.name}`).data.publicUrl
+          );
+
+        if (!cancelled && imageUrls.length > 0) {
+          setTour(t => (t ? { ...t, images: imageUrls } : t));
+        }
+      } catch (err) {
+        console.error("[Storage Exception]", err);
+      } finally {
+        if (!cancelled) {
+          setGalleryLoading(false);
+        }
+      }
+    })();
+
+    return () => { cancelled = true; };
+  }, [tour?.dbId]);
+
+  // Safe images array
+  const images = tour?.images?.length
+    ? tour.images
+    : ['data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="600"><rect width="100%" height="100%" fill="%23eee"/><text x="50%" y="50%" font-size="32" text-anchor="middle" fill="%23999" dy=".3em">No image</text></svg>'];
+  // Keep index in range whenever images change
+  useEffect(() => {
+    if (currentImageIndex >= images.length) setCurrentImageIndex(0)
+  }, [images.length]) 
+
+  const goPrev = () => setCurrentImageIndex(i => (i - 1 + images.length) % images.length)
+  const goNext = () => setCurrentImageIndex(i => (i + 1) % images.length)
+
+  const onKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
+    if (images.length <= 1) return
+    if (e.key === "ArrowLeft") goPrev()
+    if (e.key === "ArrowRight") goNext()
+  }
+
+
 
   // Fetch reviews for this tour once tour is known
   useEffect(() => {
     if (!tour?.dbId) return
     let active = true
-    ;(async () => {
-      setReviewsLoading(true)
-      setReviewsError(null)
-      const { data, error } = await supabase
-        .from("reviews")
-        .select("id, customer_name, rating, review_text, trip_date")
-        .eq("tour_id", tour.dbId)
-        .order("trip_date", { ascending: false })
+      ; (async () => {
+        setReviewsLoading(true)
+        setReviewsError(null)
+        const { data, error } = await supabase
+          .from("reviews")
+          .select("id, customer_name, rating, review_text, trip_date")
+          .eq("tour_id", tour.dbId)
+          .order("trip_date", { ascending: false })
 
-      if (!active) return
-      if (error) {
-        setReviewsError(error.message)
-        setReviews([])
-      } else {
-        const mapped: Review[] = (data as DBReviewRow[]).map(r => ({
-          id: r.id,
-          name: r.customer_name,
-          rating: Number(r.rating || 0),
-          date: r.trip_date,
-          text: r.review_text ?? ""
-        }))
-        setReviews(mapped)
-      }
-      setReviewsLoading(false)
-    })()
+        if (!active) return
+        if (error) {
+          setReviewsError(error.message)
+          setReviews([])
+        } else {
+          const mapped: Review[] = (data as DBReviewRow[]).map(r => ({
+            id: r.id,
+            name: r.customer_name,
+            rating: Number(r.rating || 0),
+            date: r.trip_date,
+            text: r.review_text ?? ""
+          }))
+          setReviews(mapped)
+        }
+        setReviewsLoading(false)
+      })()
 
     return () => { active = false }
   }, [tour?.dbId])
@@ -334,6 +426,14 @@ export default function TourDetailPage() {
     )
   }
 
+
+  const totalPages = Math.max(1, Math.ceil(filteredReviews.length / PER_PAGE));
+  const pageStart = (page - 1) * PER_PAGE;
+  const pagedReviews = filteredReviews.slice(pageStart, pageStart + PER_PAGE);
+
+  const showingFrom = filteredReviews.length ? pageStart + 1 : 0;
+  const showingTo = Math.min(pageStart + pagedReviews.length, filteredReviews.length);
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-amber-50/30">
       <PageHeader />
@@ -361,28 +461,67 @@ export default function TourDetailPage() {
           <div className="grid lg:grid-cols-3 gap-12">
             <div className="lg:col-span-2 space-y-8">
               <Card className="shadow-xl border-0 bg-white/80 backdrop-blur-sm overflow-hidden">
-                <div className="relative">
+                <div
+                  className="relative group"
+                  tabIndex={0}
+                  onKeyDown={onKeyDown}
+                  aria-label="Tour gallery"
+                >
+                  {/* Main image */}
                   <Image
-                    src={tour.images[currentImageIndex] || "/placeholder.svg"}
-                    alt={tour.title}
-                    width={800}
-                    height={400}
+                    src={images[currentImageIndex]}
+                    alt={`${tour.title} — image ${currentImageIndex + 1} of ${images.length}`}
+                    width={1200}
+                    height={600}
                     className="w-full h-96 object-cover"
+                    unoptimized
                   />
-                  {tour.images.length > 1 && (
-                    <div className="absolute bottom-4 left-1/2 -translate-x-1/2 transform flex space-x-2">
-                      {tour.images.map((_, index) => (
+
+                  {/* Index badge */}
+                  {images.length > 1 && (
+                    <div className="absolute right-3 top-3 rounded-md bg-black/50 text-white text-xs px-2 py-1">
+                      {currentImageIndex + 1} / {images.length}
+                    </div>
+                  )}
+
+                  {/* Prev/Next controls */}
+                  {images.length > 1 && (
+                    <>
+                      <button
+                        type="button"
+                        onClick={goPrev}
+                        aria-label="Previous image"
+                        className="absolute left-3 top-1/2 -translate-y-1/2 p-2 rounded-full bg-white/80 hover:bg-white shadow-md opacity-0 group-hover:opacity-100 transition"
+                      >
+                        <ChevronLeft className="h-5 w-5 text-slate-800" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={goNext}
+                        aria-label="Next image"
+                        className="absolute right-3 top-1/2 -translate-y-1/2 p-2 rounded-full bg-white/80 hover:bg-white shadow-md opacity-0 group-hover:opacity-100 transition"
+                      >
+                        <ChevronRight className="h-5 w-5 text-slate-800" />
+                      </button>
+                    </>
+                  )}
+
+                  {/* Dots */}
+                  {images.length > 1 && (
+                    <div className="absolute bottom-4 left-1/2 -translate-x-1/2 transform flex space-x-2 bg-black/20 rounded-full px-2 py-1">
+                      {images.map((_, index) => (
                         <button
                           key={index}
                           onClick={() => setCurrentImageIndex(index)}
-                          className={`w-3 h-3 rounded-full transition-colors ${index === currentImageIndex ? "bg-white" : "bg-white/50"}`}
+                          aria-label={`Go to image ${index + 1}`}
+                          className={`w-2.5 h-2.5 rounded-full transition-colors ${index === currentImageIndex ? "bg-white" : "bg-white/50 hover:bg-white/70"
+                            }`}
                         />
                       ))}
                     </div>
                   )}
                 </div>
               </Card>
-
               <Card className="shadow-lg border-0 bg-white/80 backdrop-blur-sm">
                 <CardHeader>
                   <CardTitle className="text-2xl text-slate-900">Tour Overview</CardTitle>
@@ -545,10 +684,22 @@ export default function TourDetailPage() {
                   {!reviewsLoading && !reviewsError && filteredReviews.length === 0 && (
                     <div className="text-slate-600 text-sm">No reviews match your filter.</div>
                   )}
+                </CardContent>
+                <CardContent className="space-y-4">
+                  <div ref={reviewsTopRef} />
 
-                  {filteredReviews.map((r) => (
+                  {reviewsLoading && (
+                    <div className="text-slate-600 text-sm">Loading reviews…</div>
+                  )}
+                  {reviewsError && (
+                    <div className="text-red-600 text-sm">Failed to load reviews: {reviewsError}</div>
+                  )}
+                  {!reviewsLoading && !reviewsError && filteredReviews.length === 0 && (
+                    <div className="text-slate-600 text-sm">No reviews match your filter.</div>
+                  )}
+
+                  {pagedReviews.map((r) => (
                     <div key={r.id} className="flex items-start gap-4 p-4 rounded-xl border border-slate-100 bg-white/70">
-                      {/* Avatar circle with initials */}
                       <div className="h-10 w-10 rounded-full bg-amber-100 text-amber-800 flex items-center justify-center font-semibold">
                         {(r.name || "G").slice(0, 1)}
                       </div>
@@ -566,10 +717,58 @@ export default function TourDetailPage() {
                       </div>
                     </div>
                   ))}
+
+                  {/* Pagination footer */}
+                  {filteredReviews.length > 0 && (
+                    <div className="mt-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-t border-slate-100 pt-4">
+                      <div className="text-xs text-slate-600">
+                        Showing <span className="font-medium">{showingFrom}</span>–<span className="font-medium">{showingTo}</span> of{" "}
+                        <span className="font-medium">{filteredReviews.length}</span> reviews
+                      </div>
+
+                      <div className="flex items-center gap-2">
+                        <button
+                          onClick={() => setPage((p) => Math.max(1, p - 1))}
+                          disabled={page === 1}
+                          className={`px-3 py-1.5 text-sm rounded-md border border-amber-200 bg-white hover:bg-amber-50 disabled:opacity-50 disabled:cursor-not-allowed`}
+                        >
+                          Previous
+                        </button>
+
+                        {/* Page numbers */}
+                        <div className="flex items-center gap-1">
+                          {Array.from({ length: totalPages }, (_, i) => i + 1).map((p) => (
+                            <button
+                              key={p}
+                              onClick={() => setPage(p)}
+                              className={[
+                                "w-8 h-8 rounded-md text-sm border",
+                                p === page
+                                  ? "bg-amber-500 text-white border-amber-500"
+                                  : "bg-white border-amber-200 hover:bg-amber-50 text-slate-700",
+                              ].join(" ")}
+                              aria-current={p === page ? "page" : undefined}
+                            >
+                              {p}
+                            </button>
+                          ))}
+                        </div>
+
+                        <button
+                          onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                          disabled={page === totalPages}
+                          className={`px-3 py-1.5 text-sm rounded-md border border-amber-200 bg-white hover:bg-amber-50 disabled:opacity-50 disabled:cursor-not-allowed`}
+                        >
+                          Next
+                        </button>
+                      </div>
+                    </div>
+                  )}
                 </CardContent>
               </Card>
             </div>
 
+            {/* booking session */}
             <div className="lg:col-span-1">
               <Card className="shadow-xl border-0 bg-white/80 backdrop-blur-sm sticky top-24">
                 <CardHeader className="bg-gradient-to-r from-amber-600 to-orange-600 text-white rounded-t-lg">
