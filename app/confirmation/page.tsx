@@ -1,7 +1,7 @@
 "use client";
 
+import { Suspense, useEffect, useState } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabase";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -25,7 +25,7 @@ type Booking = {
   created_at: string;
 };
 
-export default function ConfirmationPage() {
+function ConfirmationInner() {
   const params = useSearchParams();
   const router = useRouter();
   const ref = params.get("ref");
@@ -40,7 +40,6 @@ export default function ConfirmationPage() {
     (async () => {
       setError(null);
 
-      // try booking_number first
       let { data, error } = await supabase
         .from("bookings")
         .select("*")
@@ -48,7 +47,11 @@ export default function ConfirmationPage() {
         .maybeSingle();
 
       if (!data && !error) {
-        const res = await supabase.from("bookings").select("*").eq("id", ref).maybeSingle();
+        const res = await supabase
+          .from("bookings")
+          .select("*")
+          .eq("id", ref)
+          .maybeSingle();
         data = res.data as any;
         error = res.error as any;
       }
@@ -66,22 +69,33 @@ export default function ConfirmationPage() {
   }, [ref]);
 
   if (!ref) {
-    return <div className="min-h-screen flex items-center justify-center text-slate-600">Missing booking reference.</div>;
+    return (
+      <div className="min-h-screen flex items-center justify-center text-slate-600">
+        Missing booking reference.
+      </div>
+    );
   }
 
   if (error) {
-    return <div className="min-h-screen flex items-center justify-center text-slate-600">{error}</div>;
+    return (
+      <div className="min-h-screen flex items-center justify-center text-slate-600">
+        {error}
+      </div>
+    );
   }
 
   if (!booking) {
-    return <div className="min-h-screen flex items-center justify-center text-slate-600">Loading booking…</div>;
+    return (
+      <div className="min-h-screen flex items-center justify-center text-slate-600">
+        Loading booking…
+      </div>
+    );
   }
 
   const reference = booking.booking_number || booking.id;
 
   return (
     <div className="min-h-screen flex flex-col bg-gradient-to-br from-slate-50 via-white to-amber-50/20">
-      {/* Header with spacing below */}
       <PageHeader />
       <div className="flex-1 container mx-auto px-4 py-12">
         <Card className="max-w-2xl mx-auto shadow-xl border border-slate-200 bg-white/90 backdrop-blur-md rounded-2xl">
@@ -94,41 +108,34 @@ export default function ConfirmationPage() {
             <div className="grid grid-cols-2 gap-y-2 text-sm sm:text-base">
               <span className="font-semibold">Reference:</span>
               <span>{reference}</span>
-
               <span className="font-semibold">Name:</span>
               <span>{booking.customer_name}</span>
-
               <span className="font-semibold">Email:</span>
               <span>{booking.customer_email}</span>
-
               <span className="font-semibold">Phone:</span>
               <span>{booking.customer_phone}</span>
-
               <span className="font-semibold">Guests:</span>
               <span>{booking.guests}</span>
-
               <span className="font-semibold">Date:</span>
               <span>{booking.tour_date}</span>
-
               <span className="font-semibold">Time:</span>
               <span>{booking.tour_time}</span>
-
               <span className="font-semibold">Pickup:</span>
               <span>{booking.pickup_location}</span>
-
               {booking.special_requests && (
                 <>
                   <span className="font-semibold">Special Requests:</span>
                   <span>{booking.special_requests}</span>
                 </>
               )}
-
               <span className="font-semibold">Status:</span>
-              <span className="capitalize">{booking.status || "pending"}</span>
-
+              <span className="capitalize">
+                {booking.status || "pending"}
+              </span>
               <span className="font-semibold">Payment:</span>
-              <span className="capitalize">{booking.payment_status || "pending"}</span>
-
+              <span className="capitalize">
+                {booking.payment_status || "pending"}
+              </span>
               <span className="font-semibold">Created At:</span>
               <span>{new Date(booking.created_at).toLocaleString()}</span>
             </div>
@@ -146,5 +153,13 @@ export default function ConfirmationPage() {
         </Card>
       </div>
     </div>
+  );
+}
+
+export default function ConfirmationPage() {
+  return (
+    <Suspense fallback={<div className="min-h-screen flex items-center justify-center text-slate-600">Loading…</div>}>
+      <ConfirmationInner />
+    </Suspense>
   );
 }
