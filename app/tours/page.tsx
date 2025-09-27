@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import PageHeader from "@/components/page-header";
@@ -18,44 +18,74 @@ type TourRow = {
     max_guests: number | null;
     rating: number | null;
     reviews: number | null;
-    image: string | null;          // singular in DB
+    image: string | null;
     description: string | null;
     pickup_restrictions: string | null;
+    category: string;                // ⬅️ NEW
 };
+
+const PLACEHOLDER =
+    'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="600"><rect width="100%" height="100%" fill="%23eee"/><text x="50%" y="50%" font-size="28" text-anchor="middle" fill="%23999" dy=".3em">No image</text></svg>';
 
 export default function ToursPage() {
     const [tours, setTours] = useState<TourRow[]>([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
-    const [query, setQuery] = useState("");
-    // for image loading
-    const [covers, setCovers] = useState<Record<string, string>>({});
-    const PLACEHOLDER = 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="600"><rect width="100%" height="100%" fill="%23eee"/><text x="50%" y="50%" font-size="28" text-anchor="middle" fill="%23999" dy=".3em">No image</text></svg>';
 
+    const [query, setQuery] = useState("");
+    const [activeCategory, setActiveCategory] = useState<string>("All");
+
+    const [covers, setCovers] = useState<Record<string, string>>({});
+
+    // Build category list dynamically (plus “All” first)
+    const categories = useMemo(() => {
+        const uniq = Array.from(new Set(tours.map(t => (t.category || "Other").trim()))).sort();
+        return ["All", ...uniq];
+    }, [tours]);
+
+    useEffect(() => {
+        let mounted = true;
+        (async () => {
+            setLoading(true);
+            setError(null);
+
+            const cols = `
+        id, title, short_title, price, duration, max_guests,
+        rating, reviews, image, description, pickup_restrictions,
+        category
+      `;
+            const { data, error } = await supabase
+                .from("tours")
+                .select(cols)
+                .order("title", { ascending: true });
+
+            if (!mounted) return;
+            if (error) setError(error.message);
+            else setTours(data || []);
+            setLoading(false);
+        })();
+        return () => { mounted = false; };
+    }, []);
+
+    // Optional: try to fetch cover images from storage bucket "Tours/<id>"
     useEffect(() => {
         if (!tours.length) return;
         let cancelled = false;
 
         (async () => {
-            // Build entries [tourId, url|null]
             const entries = await Promise.all(
                 tours.map(async (t) => {
                     const id = t.id?.trim();
                     if (!id) return [t.id, null] as const;
-                    // 1) list files in Tours/<id>
-                    const { data, error } = await supabase
-                        .storage
+
+                    const { data, error } = await supabase.storage
                         .from("Tours")
                         .list(id, { limit: 200, sortBy: { column: "name", order: "asc" } });
+
                     if (error || !data?.length) return [id, null] as const;
 
-                    // 2) choose first image-looking file
-                    const imageFile =
-                        data.find(f => /\.(jpe?g|png|webp|gif|avif)$/i.test(f.name)) || data[0];
-
-                    // 3) build public URL
-                    const path = `${id}/${encodeURIComponent(imageFile.name)}`;
-                    const url = supabase.storage.from("Tours").getPublicUrl(path).data.publicUrl;
+                    const f = data.find(x => /\.(jpe?g|png|webp|gif|avif)$/i.test(x.name)) || data[0];
+                    const url = supabase.storage.from("Tours").getPublicUrl(`${id}/${encodeURIComponent(f.name)}`).data.publicUrl;
                     return [id, url] as const;
                 })
             );
@@ -69,31 +99,17 @@ export default function ToursPage() {
         return () => { cancelled = true; };
     }, [tours]);
 
-    useEffect(() => {
-        let mounted = true;
-        (async () => {
-            setLoading(true); setError(null);
-            const cols = `
-        id, title, short_title, price, duration, max_guests,
-        rating, reviews, image, description, pickup_restrictions
-      `;
-            const { data, error } = await supabase.from("tours").select(cols).order("title", { ascending: true });
-            if (!mounted) return;
-            if (error) setError(error.message); else setTours(data || []);
-            setLoading(false);
-        })();
-        return () => { mounted = false; };
-    }, []);
-
-    const filtered = tours.filter(t => {
-        if (!query.trim()) return true;
-        const q = query.toLowerCase();
-        return (
-            t.title?.toLowerCase().includes(q) ||
-            t.short_title?.toLowerCase().includes(q) ||
-            t.description?.toLowerCase().includes(q)
-        );
-    });
+    // Search + Category filter
+    const filtered = useMemo(() => {
+        const q = query.trim().toLowerCase();
+        return tours.filter((t) => {
+            const inCategory = activeCategory === "All" || (t.category || "Other") === activeCategory;
+            if (!q) return inCategory;
+            const hay =
+                `${t.title ?? ""} ${t.short_title ?? ""} ${t.description ?? ""}`.toLowerCase();
+            return inCategory && hay.includes(q);
+        });
+    }, [tours, query, activeCategory]);
 
     return (
         <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-amber-50/30">
@@ -110,7 +126,7 @@ export default function ToursPage() {
                         Premium Tours
                     </h1>
                     <p className="text-xl text-slate-600 max-w-3xl mx-auto leading-relaxed">
-                        Choose from our hand-picked experiences. Click a card to see details & book.
+                        Browse by location or search. Click a card to see details & book.
                     </p>
 
                     {/* Search */}
@@ -122,6 +138,25 @@ export default function ToursPage() {
                             className="w-full rounded-xl border border-amber-200 bg-white/90 backdrop-blur-sm px-12 py-3 text-slate-800 shadow focus:outline-none focus:ring-2 focus:ring-amber-500"
                         />
                         <Search className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-amber-600" />
+                    </div>
+
+                    {/* Category filter */}
+                    <div className="mt-6 flex flex-wrap gap-2 justify-center">
+                        {categories.map(cat => (
+                            <Button
+                                key={cat}
+                                size="sm"
+                                onClick={() => setActiveCategory(cat)}
+                                variant={activeCategory === cat ? "default" : "outline"}
+                                className={
+                                    activeCategory === cat
+                                        ? "bg-gradient-to-r from-amber-600 to-orange-600 hover:from-amber-700 hover:to-orange-700 text-white"
+                                        : "border-amber-200 text-amber-700 hover:bg-amber-50"
+                                }
+                            >
+                                {cat}
+                            </Button>
+                        ))}
                     </div>
                 </div>
             </section>
@@ -135,7 +170,7 @@ export default function ToursPage() {
                     {!loading && !error && (
                         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-8 max-w-7xl mx-auto">
                             {filtered.map((t) => {
-                                const slug = t.id;
+                                const slug = t.id; // using uuid
                                 return (
                                     <Link key={t.id} href={`/tours/${slug}`} className="group">
                                         <div className="relative overflow-hidden rounded-2xl shadow-xl hover:shadow-2xl transition-all duration-500 bg-white">
@@ -148,6 +183,10 @@ export default function ToursPage() {
                                                 />
                                                 <Badge className="absolute top-4 right-4 bg-white/90 text-slate-800 border-0">
                                                     {new Intl.NumberFormat("ja-JP", { style: "currency", currency: "JPY", minimumFractionDigits: 0 }).format(t.price ?? 0)}
+                                                </Badge>
+                                                {/* Category chip */}
+                                                <Badge className="absolute top-4 left-4 bg-amber-100/90 text-amber-800 border-0">
+                                                    {(t.category || "Other")}
                                                 </Badge>
                                                 <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
                                             </div>
@@ -176,7 +215,7 @@ export default function ToursPage() {
                                                     </span>
                                                     <span className="inline-flex items-center">
                                                         <MapPin className="h-3.5 w-3.5 mr-1" />
-                                                        Japan
+                                                        {(t.category || "Japan")}
                                                     </span>
                                                 </div>
 
@@ -190,7 +229,7 @@ export default function ToursPage() {
                             })}
                             {!filtered.length && (
                                 <div className="col-span-full text-center text-slate-600 py-12">
-                                    No tours match your search.
+                                    No tours match your search or filter.
                                 </div>
                             )}
                         </div>
