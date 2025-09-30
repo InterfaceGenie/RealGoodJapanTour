@@ -172,7 +172,7 @@ export default function HomePage() {
               </Badge>
             </div>
             <h2 className="text-5xl lg:text-7xl font-bold mb-8 bg-gradient-to-br from-slate-900 via-amber-800 to-orange-700 bg-clip-text text-transparent leading-tight">
-              Discover Japan's
+              Discover Sydney's
               <span className="block">Hidden Treasures</span>
             </h2>
             <p className="text-xl lg:text-2xl text-slate-600 mb-10 leading-relaxed max-w-3xl mx-auto">
