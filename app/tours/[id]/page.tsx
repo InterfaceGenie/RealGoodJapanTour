@@ -139,6 +139,71 @@ export default function TourDetailPage() {
   const PER_PAGE = 5;
   const reviewsTopRef = useRef<HTMLDivElement | null>(null);
 
+  // --- COUPONS ---
+  type Coupon = { ref: string; title: string | null; discount: number }
+
+  const [couponRef, setCouponRef] = useState("")
+  const [coupon, setCoupon] = useState<Coupon | null>(null)
+  const [couponLoading, setCouponLoading] = useState(false)
+  const [couponError, setCouponError] = useState<string | null>(null)
+
+  // Base total (before discount)
+  const baseTotal = (tour?.price ?? 0) * guests
+
+  // Clamp discount to [0, 100]
+  const appliedDiscountPct = coupon ? Math.min(Math.max(coupon.discount, 0), 100) : 0
+
+  // Discounted total (integer JPY)
+  const discountedTotal = Math.max(0, Math.round(baseTotal * (1 - appliedDiscountPct / 100)))
+
+  const fmtJPY = (n: number) =>
+    new Intl.NumberFormat("ja-JP", { style: "currency", currency: "JPY", minimumFractionDigits: 0 }).format(n)
+
+  const formattedBaseTotal = fmtJPY(baseTotal)
+  const formattedDiscountedTotal = fmtJPY(discountedTotal)
+  const handleApplyCoupon = async () => {
+    if (!couponRef.trim()) return
+    setCouponLoading(true)
+    setCouponError(null)
+    try {
+      // Case-insensitive match on ref
+      const { data, error } = await supabase
+        .from("coupons")
+        .select("ref,title,discount")
+        .ilike("ref", couponRef.trim()) // e.g. 'FALL10' or 'fall10'
+        .maybeSingle()
+
+      if (error) throw error
+      if (!data) {
+        setCoupon(null)
+        setCouponError("Coupon not found.")
+        return
+      }
+
+      // Expect discount as % (0–100)
+      const pct = Number(data.discount ?? 0)
+      if (!Number.isFinite(pct) || pct <= 0) {
+        setCoupon(null)
+        setCouponError("This coupon has no discount.")
+        return
+      }
+
+      setCoupon({ ref: data.ref, title: data.title ?? null, discount: pct })
+    } catch (e: any) {
+      setCoupon(null)
+      setCouponError(e?.message ?? "Failed to apply coupon.")
+    } finally {
+      setCouponLoading(false)
+    }
+  }
+
+  const handleRemoveCoupon = () => {
+    setCoupon(null)
+    setCouponRef("")
+    setCouponError(null)
+  }
+
+
   // reset to first page on change
   useEffect(() => {
     setPage(1);
@@ -264,7 +329,7 @@ export default function TourDetailPage() {
   // Keep index in range whenever images change
   useEffect(() => {
     if (currentImageIndex >= images.length) setCurrentImageIndex(0)
-  }, [images.length]) 
+  }, [images.length])
 
   const goPrev = () => setCurrentImageIndex(i => (i - 1 + images.length) % images.length)
   const goNext = () => setCurrentImageIndex(i => (i + 1) % images.length)
@@ -351,7 +416,7 @@ export default function TourDetailPage() {
         _tour_date: selectedDate,           // 'YYYY-MM-DD'
         _tour_time: toSqlTime(selectedTime),// 'HH:MM:SS'
         _guests: guests,
-        _total_price: totalPrice,
+        _total_price: discountedTotal,
         _pickup_location: pickup.address,
         _pickup_lat: toNullable(pickup.lat),
         _pickup_lng: toNullable(pickup.lng),
@@ -810,20 +875,52 @@ export default function TourDetailPage() {
                     <div className="bg-gradient-to-r from-amber-50 to-orange-50 rounded-lg p-4">
                       <div className="flex justify-between items-center mb-2">
                         <span className="text-slate-600">
-                          {new Intl.NumberFormat("ja-JP", { style: "currency", currency: "JPY", minimumFractionDigits: 0 }).format(
-                            tour.price
-                          )}{" "}
-                          × {guests} {guests !== 1 ? "guests" : "guest"}
+                          {fmtJPY(tour.price)} × {guests} {guests !== 1 ? "guests" : "guest"}
                         </span>
-                        <span className="font-semibold text-slate-900">{formattedPrice}</span>
+                        <span className="font-semibold text-slate-900">{formattedBaseTotal}</span>
                       </div>
-                      <div className="border-t border-amber-200 pt-2">
+
+                      {/* Coupon input */}
+                      <div className="mt-3 flex gap-2">
+                        <Input
+                          placeholder="Coupon code"
+                          value={couponRef}
+                          onChange={(e) => setCouponRef(e.target.value)}
+                          className="border-amber-200"
+                          disabled={!!coupon}
+                        />
+                        {coupon ? (
+                          <Button type="button" variant="outline" onClick={handleRemoveCoupon} className="border-amber-200">
+                            Remove
+                          </Button>
+                        ) : (
+                          <Button type="button" onClick={handleApplyCoupon} disabled={couponLoading} className="bg-amber-600 hover:bg-amber-700">
+                            {couponLoading ? "Applying…" : "Apply"}
+                          </Button>
+                        )}
+                      </div>
+                      {couponError && <div className="mt-2 text-sm text-red-600">{couponError}</div>}
+
+                      {/* If applied, show discount row */}
+                      {coupon && (
+                        <div className="mt-3 flex justify-between items-center text-sm">
+                          <div className="text-emerald-700">
+                            {coupon.title ? `${coupon.title} ` : ""}({coupon.ref}) — {appliedDiscountPct}% off
+                          </div>
+                          <div className="text-emerald-700">− {fmtJPY(Math.max(0, baseTotal - discountedTotal))}</div>
+                        </div>
+                      )}
+
+                      <div className="border-t border-amber-200 mt-3 pt-2">
                         <div className="flex justify-between items-center">
                           <span className="text-lg font-bold text-slate-900">Total</span>
-                          <span className="text-2xl font-bold text-amber-600">{formattedPrice}</span>
+                          <span className="text-2xl font-bold text-amber-600">
+                            {coupon ? formattedDiscountedTotal : formattedBaseTotal}
+                          </span>
                         </div>
                       </div>
                     </div>
+
 
                     <div>
                       <Label htmlFor="date" className="text-sm font-semibold mb-2 block text-slate-900">
