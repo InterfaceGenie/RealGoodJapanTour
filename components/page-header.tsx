@@ -41,6 +41,9 @@ export default function PageHeader() {
             <Link href="/contact" className="text-sm font-medium text-slate-700 hover:text-amber-600 transition-colors">
               Contact
             </Link>
+            <Link href="/aboutUs" className="text-sm font-medium text-slate-700 hover:text-amber-600 transition-colors">
+              About Us
+            </Link>
             <Button className="bg-gradient-to-r from-amber-600 to-orange-600 hover:from-amber-700 hover:to-orange-700 text-white shadow-lg" asChild>
               <Link href="/booking">
                 Booking

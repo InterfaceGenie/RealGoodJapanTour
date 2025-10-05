@@ -662,7 +662,7 @@ export default function TourDetailPage() {
                   </CardHeader>
                   <CardContent>
                     <ul className="space-y-3">
-                      {(tour.included.length ? tour.included : ["English-speaking guide", "All taxes & fees"]).map(
+                      {(tour.included.length ? tour.included : ["• Walking tours do not include any entrance ticket fees.","• Tours with car service include ticket fees, parking fee, highway fee","• Food and drinks are not included in any tour."]).map(
                         (item, index) => (
                           <li key={index} className="flex items-start">
                             <CheckCircle className="h-5 w-5 text-green-600 mr-3 mt-0.5 flex-shrink-0" />
