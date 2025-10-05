@@ -29,6 +29,7 @@ import {
   Mail,
 } from "lucide-react"
 import PageHeader from "@/components/page-header"
+import { priceBreakdown, fmtJPY } from "@/lib/pricing";
 
 type UITour = {
   id: string
@@ -147,20 +148,12 @@ export default function TourDetailPage() {
   const [couponLoading, setCouponLoading] = useState(false)
   const [couponError, setCouponError] = useState<string | null>(null)
 
-  // Base total (before discount)
-  const baseTotal = (tour?.price ?? 0) * guests
-
   // Clamp discount to [0, 100]
   const appliedDiscountPct = coupon ? Math.min(Math.max(coupon.discount, 0), 100) : 0
 
-  // Discounted total (integer JPY)
-  const discountedTotal = Math.max(0, Math.round(baseTotal * (1 - appliedDiscountPct / 100)))
 
   const fmtJPY = (n: number) =>
     new Intl.NumberFormat("ja-JP", { style: "currency", currency: "JPY", minimumFractionDigits: 0 }).format(n)
-
-  const formattedBaseTotal = fmtJPY(baseTotal)
-  const formattedDiscountedTotal = fmtJPY(discountedTotal)
   const handleApplyCoupon = async () => {
     if (!couponRef.trim()) return
     setCouponLoading(true)
@@ -202,6 +195,28 @@ export default function TourDetailPage() {
     setCouponRef("")
     setCouponError(null)
   }
+  const breakdown = priceBreakdown({
+    pricePerPerson: tour?.price ?? 0,
+    guests,
+    soloMultiplier: 2,                      // matches “(¥xx,xxx if only one participant)”
+    couponPercent: coupon?.discount ?? 0,   // your coupon % from DB
+  });
+
+  const {
+    baseTotal,
+    groupDiscountPercent,
+    groupDiscountAmount,
+    subtotalAfterGroup,
+    couponPercent,
+    couponAmount,
+    total,
+    soloApplied,
+  } = breakdown;
+  const formattedBaseTotal = fmtJPY(baseTotal);
+  const formattedGroupDiscount = groupDiscountAmount ? `− ${fmtJPY(groupDiscountAmount)}` : undefined;
+  const formattedSubtotalAfterGrp = fmtJPY(subtotalAfterGroup);
+  const formattedCouponAmount = couponAmount ? `− ${fmtJPY(couponAmount)}` : undefined;
+  const formattedTotal = fmtJPY(total);
 
 
   // reset to first page on change
@@ -374,8 +389,16 @@ export default function TourDetailPage() {
 
     return () => { active = false }
   }, [tour?.dbId])
+  var pplPrice = 0;
+  if (guests == 1) {
+    pplPrice = (tour?.price ?? 0) * (guests + 1)
+  }
+  else {
+    pplPrice = (tour?.price ?? 0) * guests
+  }
 
-  const totalPrice = (tour?.price ?? 0) * guests
+  const totalPrice = pplPrice
+
   const formattedPrice = new Intl.NumberFormat("ja-JP", {
     style: "currency",
     currency: "JPY",
@@ -416,7 +439,7 @@ export default function TourDetailPage() {
         _tour_date: selectedDate,           // 'YYYY-MM-DD'
         _tour_time: toSqlTime(selectedTime),// 'HH:MM:SS'
         _guests: guests,
-        _total_price: discountedTotal,
+        _total_price: formattedTotal,
         _pickup_location: pickup.address,
         _pickup_lat: toNullable(pickup.lat),
         _pickup_lng: toNullable(pickup.lng),
@@ -662,7 +685,7 @@ export default function TourDetailPage() {
                   </CardHeader>
                   <CardContent>
                     <ul className="space-y-3">
-                      {(tour.included.length ? tour.included : ["• Walking tours do not include any entrance ticket fees.","• Tours with car service include ticket fees, parking fee, highway fee","• Food and drinks are not included in any tour."]).map(
+                      {(tour.included.length ? tour.included : ["Tours with car service include ticket fees, parking fee, highway fee", "Full english guidance"]).map(
                         (item, index) => (
                           <li key={index} className="flex items-start">
                             <CheckCircle className="h-5 w-5 text-green-600 mr-3 mt-0.5 flex-shrink-0" />
@@ -683,7 +706,7 @@ export default function TourDetailPage() {
                   </CardHeader>
                   <CardContent>
                     <ul className="space-y-3">
-                      {(tour.notIncluded.length ? tour.notIncluded : ["Meals", "Personal expenses"]).map(
+                      {(tour.notIncluded.length ? tour.notIncluded : ["Walking tours do not include any entrance ticket fees.", "Personal expenses", "Food and drinks are not included in any tour."]).map(
                         (item, index) => (
                           <li key={index} className="flex items-start">
                             <XCircle className="h-5 w-5 text-red-600 mr-3 mt-0.5 flex-shrink-0" />
@@ -876,50 +899,70 @@ export default function TourDetailPage() {
                       <div className="flex justify-between items-center mb-2">
                         <span className="text-slate-600">
                           {fmtJPY(tour.price)} × {guests} {guests !== 1 ? "guests" : "guest"}
+                          {soloApplied && " (solo rate applied)"}
                         </span>
                         <span className="font-semibold text-slate-900">{formattedBaseTotal}</span>
                       </div>
 
-                      {/* Coupon input */}
-                      <div className="mt-3 flex gap-2">
-                        <Input
-                          placeholder="Coupon code"
-                          value={couponRef}
-                          onChange={(e) => setCouponRef(e.target.value)}
-                          className="border-amber-200"
-                          disabled={!!coupon}
-                        />
-                        {coupon ? (
-                          <Button type="button" variant="outline" onClick={handleRemoveCoupon} className="border-amber-200">
-                            Remove
-                          </Button>
-                        ) : (
-                          <Button type="button" onClick={handleApplyCoupon} disabled={couponLoading} className="bg-amber-600 hover:bg-amber-700">
-                            {couponLoading ? "Applying…" : "Apply"}
-                          </Button>
-                        )}
-                      </div>
-                      {couponError && <div className="mt-2 text-sm text-red-600">{couponError}</div>}
-
-                      {/* If applied, show discount row */}
-                      {coupon && (
-                        <div className="mt-3 flex justify-between items-center text-sm">
+                      {/* Group discount row (auto from rules) */}
+                      {groupDiscountPercent > 0 && (
+                        <div className="mt-2 flex justify-between items-center text-sm">
                           <div className="text-emerald-700">
-                            {coupon.title ? `${coupon.title} ` : ""}({coupon.ref}) — {appliedDiscountPct}% off
+                            Group discount — {groupDiscountPercent}% off
                           </div>
-                          <div className="text-emerald-700">− {fmtJPY(Math.max(0, baseTotal - discountedTotal))}</div>
+                          <div className="text-emerald-700">{formattedGroupDiscount}</div>
                         </div>
                       )}
 
+                      {/* Subtotal after group discount */}
+                      {groupDiscountPercent > 0 && (
+                        <div className="mt-2 flex justify-between items-center">
+                          <span className="text-slate-600">Subtotal</span>
+                          <span className="font-semibold text-slate-900">{formattedSubtotalAfterGrp}</span>
+                        </div>
+                      )}
+
+                      {/* Coupon input (unchanged UI) */}
+                      <div className="mt-3 flex gap-2">
+                        {/* Coupon input */}
+                        <div className="mt-3 flex gap-2">
+                          <Input
+                            placeholder="Coupon code"
+                            value={couponRef}
+                            onChange={(e) => setCouponRef(e.target.value)}
+                            className="border-amber-200"
+                            disabled={!!coupon}
+                          />
+                          {coupon ? (
+                            <Button type="button" variant="outline" onClick={handleRemoveCoupon} className="border-amber-200">
+                              Remove
+                            </Button>
+                          ) : (
+                            <Button type="button" onClick={handleApplyCoupon} disabled={couponLoading} className="bg-amber-600 hover:bg-amber-700">
+                              {couponLoading ? "Applying…" : "Apply"}
+                            </Button>
+                          )}
+                        </div>
+                        {couponError && <div className="mt-2 text-sm text-red-600">{couponError}</div>}
+                      </div>
+                      {/* Coupon row */}
+                      {couponPercent > 0 && (
+                        <div className="mt-3 flex justify-between items-center text-sm">
+                          <div className="text-emerald-700">
+                            {coupon?.title ? `${coupon.title} ` : "Coupon"} ({coupon?.ref || ""}) — {couponPercent}% off
+                          </div>
+                          <div className="text-emerald-700">{formattedCouponAmount}</div>
+                        </div>
+                      )}
                       <div className="border-t border-amber-200 mt-3 pt-2">
                         <div className="flex justify-between items-center">
                           <span className="text-lg font-bold text-slate-900">Total</span>
-                          <span className="text-2xl font-bold text-amber-600">
-                            {coupon ? formattedDiscountedTotal : formattedBaseTotal}
-                          </span>
+                          <span className="text-2xl font-bold text-amber-600">{formattedTotal}</span>
                         </div>
                       </div>
+
                     </div>
+
 
 
                     <div>
@@ -1119,6 +1162,6 @@ export default function TourDetailPage() {
           </div>
         </div>
       </div>
-    </div>
+    </div >
   )
 }
