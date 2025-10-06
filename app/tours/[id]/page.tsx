@@ -151,9 +151,6 @@ export default function TourDetailPage() {
   // Clamp discount to [0, 100]
   const appliedDiscountPct = coupon ? Math.min(Math.max(coupon.discount, 0), 100) : 0
 
-
-  const fmtJPY = (n: number) =>
-    new Intl.NumberFormat("ja-JP", { style: "currency", currency: "JPY", minimumFractionDigits: 0 }).format(n)
   const handleApplyCoupon = async () => {
     if (!couponRef.trim()) return
     setCouponLoading(true)
@@ -389,27 +386,18 @@ export default function TourDetailPage() {
 
     return () => { active = false }
   }, [tour?.dbId])
-  var pplPrice = 0;
-  if (guests == 1) {
-    pplPrice = (tour?.price ?? 0) * (guests + 1)
-  }
-  else {
-    pplPrice = (tour?.price ?? 0) * guests
-  }
-
-  const totalPrice = pplPrice
-
-  const formattedPrice = new Intl.NumberFormat("ja-JP", {
-    style: "currency",
-    currency: "JPY",
-    minimumFractionDigits: 0,
-  }).format(totalPrice)
 
   const handleGuestChange = (increment: boolean) => {
     if (!tour) return
     if (increment && guests < tour.maxGuests) setGuests((g) => g + 1)
     else if (!increment && guests > 1) setGuests((g) => g - 1)
   }
+  // Convert anything (number or "￥120,000") to a plain integer yen
+  const toYenNumber = (v: any) => {
+    if (typeof v === "number" && Number.isFinite(v)) return Math.round(v);
+    const n = Number(String(v).replace(/[^\d.-]/g, "")); // strips ￥ and commas
+    return Number.isFinite(n) ? Math.round(n) : 0;
+  };
 
   // === INSERT into bookings ===
   const handleBooking = async (e: React.FormEvent) => {
@@ -436,10 +424,10 @@ export default function TourDetailPage() {
     try {
       const { data, error } = await supabase.rpc("book_tour_atomic_by_date", {
         _tour_id: tour.dbId,
-        _tour_date: selectedDate,           // 'YYYY-MM-DD'
-        _tour_time: toSqlTime(selectedTime),// 'HH:MM:SS'
+        _tour_date: selectedDate,
+        _tour_time: toSqlTime(selectedTime),
         _guests: guests,
-        _total_price: formattedTotal,
+        _total_price: toYenNumber(total),   // <— use the sanitizer here
         _pickup_location: pickup.address,
         _pickup_lat: toNullable(pickup.lat),
         _pickup_lng: toNullable(pickup.lng),
@@ -450,6 +438,7 @@ export default function TourDetailPage() {
         _status: "pending",
         _payment_status: "pending",
       });
+
 
       if (error) {
         console.error("Booking failed:", error);
@@ -922,7 +911,7 @@ export default function TourDetailPage() {
                         </div>
                       )}
 
-                      {/* Coupon input (unchanged UI) */}
+                      {/* Coupon input */}
                       <div className="mt-3 flex gap-2">
                         {/* Coupon input */}
                         <div className="mt-3 flex gap-2">
@@ -1133,7 +1122,7 @@ export default function TourDetailPage() {
                   <div className="grid md:grid-cols-2 gap-6 mt-6">
                     <div>
                       <h4 className="font-semibold text-slate-900 mb-2 flex items-center">
-                        <Shield className="h-5 w-5 text-amber-600 mr-2" />
+                        <Shield className="h-5 w-5 text-amber-600 mr-a2" />
                         Booking Policy
                       </h4>
                       <ul className="text-sm text-slate-600 space-y-1">

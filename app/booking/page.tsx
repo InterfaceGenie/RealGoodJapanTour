@@ -15,6 +15,8 @@ import { Textarea } from "@/components/ui/textarea";
 import { Checkbox } from "@/components/ui/checkbox";
 import { MapPicker } from "@/components/map-picker";
 import { Star, Users, Clock, MapPin, CheckCircle, MessageCircle, Mail } from "lucide-react";
+import { priceBreakdown, fmtJPY } from "@/lib/pricing";
+import { ExternalLink } from "lucide-react";
 
 type UITour = {
   id: string;
@@ -78,6 +80,18 @@ export default function BookingGridPage() {
   // for image loading
   const [covers, setCovers] = useState<Record<string, string>>({});
   const PLACEHOLDER = 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="600"><rect width="100%" height="100%" fill="%23eee"/><text x="50%" y="50%" font-size="28" text-anchor="middle" fill="%23999" dy=".3em">No image</text></svg>';
+
+  // --- Coupons ---
+  type Coupon = { ref: string; title: string | null; discount: number };
+  const [couponRef, setCouponRef] = useState("");
+  const [coupon, setCoupon] = useState<Coupon | null>(null);
+  const [couponLoading, setCouponLoading] = useState(false);
+  const [couponError, setCouponError] = useState<string | null>(null);
+
+  // reset coupon when tour or guests change (optional)
+  useEffect(() => {
+    setCouponError(null);
+  }, [selectedId, guests]);
 
   useEffect(() => {
     if (!tours.length) return;
@@ -164,8 +178,30 @@ export default function BookingGridPage() {
     return () => { active = false; };
   }, [selectedId]);
 
-  const totalPrice = (selectedTour?.price ?? 0) * guests;
-  const formattedPrice = new Intl.NumberFormat("ja-JP", { style: "currency", currency: "JPY", minimumFractionDigits: 0 }).format(totalPrice);
+  // Shared pricing calc (group tiers + solo multiplier + coupon)
+  const breakdown = priceBreakdown({
+    pricePerPerson: selectedTour?.price ?? 0,
+    guests,
+    soloMultiplier: 2,                    // same rule: 1 guest = x2
+    couponPercent: coupon?.discount ?? 0, // from DB
+  });
+
+  const {
+    baseTotal,
+    groupDiscountPercent,
+    groupDiscountAmount,
+    subtotalAfterGroup,
+    couponPercent,
+    couponAmount,
+    total,
+    soloApplied,
+  } = breakdown;
+
+  const formattedBaseTotal = fmtJPY(baseTotal);
+  const formattedGroupDiscount = groupDiscountAmount ? `− ${fmtJPY(groupDiscountAmount)}` : undefined;
+  const formattedSubtotalAfterGp = fmtJPY(subtotalAfterGroup);
+  const formattedCouponAmount = couponAmount ? `− ${fmtJPY(couponAmount)}` : undefined;
+  const formattedTotal = fmtJPY(total);
 
   const onChooseTour = (id: string) => {
     setSelectedId(id);
@@ -189,7 +225,7 @@ export default function BookingGridPage() {
       _tour_date: selectedDate,             // 'YYYY-MM-DD'
       _tour_time: sqlTime,                  // 'HH:MM:SS'
       _guests: guests,
-      _total_price: totalPrice,
+      _total_price: Math.max(0, Math.round(Number(total))),
       _pickup_location: pickup.address,
       _pickup_lat: pickup.lat,
       _pickup_lng: pickup.lng,
@@ -221,6 +257,38 @@ export default function BookingGridPage() {
 
   if (loading) return <div className="min-h-screen flex items-center justify-center text-slate-600">Loading tours…</div>;
   if (error) return <div className="min-h-screen flex items-center justify-center text-slate-600">{error}</div>;
+  const handleApplyCoupon = async () => {
+    if (!couponRef.trim()) return;
+    setCouponLoading(true);
+    setCouponError(null);
+    try {
+      const { data, error } = await supabase
+        .from("coupons")
+        .select("ref,title,discount")
+        .ilike("ref", couponRef.trim())
+        .maybeSingle();
+
+      if (error) throw error;
+      if (!data) { setCoupon(null); setCouponError("Coupon not found."); return; }
+
+      const pct = Number(data.discount ?? 0);
+      if (!Number.isFinite(pct) || pct <= 0) {
+        setCoupon(null); setCouponError("This coupon has no discount."); return;
+      }
+      setCoupon({ ref: data.ref, title: data.title ?? null, discount: pct });
+    } catch (e: any) {
+      setCoupon(null);
+      setCouponError(e?.message ?? "Failed to apply coupon.");
+    } finally {
+      setCouponLoading(false);
+    }
+  };
+
+  const handleRemoveCoupon = () => {
+    setCoupon(null);
+    setCouponRef("");
+    setCouponError(null);
+  };
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-amber-50/30">
@@ -398,24 +466,66 @@ export default function BookingGridPage() {
                     </div>
                   </div>
 
-                  {/* Total panel */}
+                  {/* Total / breakdown panel */}
                   <div className="rounded-2xl border border-amber-200 bg-gradient-to-b from-amber-50/70 to-amber-50/40 p-5">
                     <div className="flex items-center justify-between text-slate-700 mb-2">
                       <span className="text-lg">
-                        {new Intl.NumberFormat("ja-JP", { style: "currency", currency: "JPY", minimumFractionDigits: 0 })
-                          .format(selectedTour?.price ?? 0)}{" "}
-                        × {guests} {guests === 1 ? "guest" : "guests"}
+                        {fmtJPY(selectedTour?.price ?? 0)} × {guests} {guests === 1 ? "guest" : "guests"}
+                        {soloApplied && " (solo rate applied)"}
                       </span>
-                      <span className="font-semibold">
-                        {formattedPrice}
-                      </span>
+                      <span className="font-semibold">{formattedBaseTotal}</span>
                     </div>
-                    <div className="h-px bg-amber-200 my-2" />
+
+                    {groupDiscountPercent > 0 && (
+                      <>
+                        <div className="mt-2 flex justify-between items-center text-sm">
+                          <div className="text-emerald-700">Group discount — {groupDiscountPercent}% off</div>
+                          <div className="text-emerald-700">{formattedGroupDiscount}</div>
+                        </div>
+                        <div className="mt-2 flex justify-between items-center">
+                          <span className="text-slate-600">Subtotal</span>
+                          <span className="font-semibold text-slate-900">{formattedSubtotalAfterGp}</span>
+                        </div>
+                      </>
+                    )}
+
+                    {/* Coupon input */}
+                    <div className="mt-3 flex gap-2">
+                      <Input
+                        placeholder="Coupon code"
+                        value={couponRef}
+                        onChange={(e) => setCouponRef(e.target.value)}
+                        className="border-amber-200"
+                        disabled={!!coupon}
+                      />
+                      {coupon ? (
+                        <Button type="button" variant="outline" onClick={handleRemoveCoupon} className="border-amber-200">
+                          Remove
+                        </Button>
+                      ) : (
+                        <Button type="button" onClick={handleApplyCoupon} disabled={couponLoading} className="bg-amber-600 hover:bg-amber-700">
+                          {couponLoading ? "Applying…" : "Apply"}
+                        </Button>
+                      )}
+                    </div>
+                    {couponError && <div className="mt-2 text-sm text-red-600">{couponError}</div>}
+
+                    {couponPercent > 0 && (
+                      <div className="mt-3 flex justify-between items-center text-sm">
+                        <div className="text-emerald-700">
+                          {coupon?.title ? `${coupon.title} ` : "Coupon"} ({coupon?.ref || ""}) — {couponPercent}% off
+                        </div>
+                        <div className="text-emerald-700">{formattedCouponAmount}</div>
+                      </div>
+                    )}
+
+                    <div className="h-px bg-amber-200 my-3" />
                     <div className="flex items-center justify-between">
                       <span className="text-2xl font-bold text-slate-900">Total</span>
-                      <span className="text-3xl font-extrabold text-amber-600">{formattedPrice}</span>
+                      <span className="text-3xl font-extrabold text-amber-600">{formattedTotal}</span>
                     </div>
                   </div>
+
 
                   {/* Date / Time */}
                   <div className="grid md:grid-cols-2 gap-4">
