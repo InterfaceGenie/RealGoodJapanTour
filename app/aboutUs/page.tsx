@@ -34,7 +34,7 @@ export default function AboutUsPage() {
                             </div>
 
                             {/* Text flows around the floated logo */}
-                            <div className="prose prose-lg max-w-none text-slate-700">
+                            <div className="prose prose-lg max-w-none text-slate-700 space-y-3">
                                 <h2 className="!mt-0 text-3xl sm:text-4xl font-bold bg-gradient-to-r from-slate-900 to-amber-800 bg-clip-text text-transparent">
                                     About Real Good Japan Tour
                                 </h2>
@@ -45,7 +45,6 @@ export default function AboutUsPage() {
                                     Through meaningful encounters with Japanese traditions, we help travelers discover the
                                     true heart of Japan and create memories to treasure for a lifetime.
                                 </p>
-
                                 <p>
                                     Unlike many other tour companies, we do not rely on third-party booking apps like
                                     Viator, TripAdvisor, or GetYourGuide. All reservations are made directly through our
