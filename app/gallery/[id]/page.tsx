@@ -28,6 +28,7 @@ type DBGalleryRow = {
     category: string | null;
     image_url: string | null;   // optional single cover in DB
     created_at: string;
+    google_url: string;
 };
 
 const BUCKET = "Gallery";
@@ -57,7 +58,7 @@ export default function GalleryDetailPage() {
 
             const { data, error } = await supabase
                 .from("gallery")
-                .select("id,title,description,location,category,image_url,created_at")
+                .select("id,title,description,location,category,image_url,created_at,google_url")
                 .eq("is_approved", true)
                 .eq("id", id)
                 .maybeSingle();
@@ -249,6 +250,19 @@ export default function GalleryDetailPage() {
                                 <CardTitle className="text-2xl text-slate-900">About this moment</CardTitle>
                             </CardHeader>
                             <CardContent className="space-y-4">
+                                <div className="flex flex-wrap gap-3 text-sm text-slate-600">
+                                    <MapPin className="h-4 w-4 mr-1 text-amber-600" />
+                                    {row.google_url && (
+                                        <Link
+                                            href={row.google_url}
+                                            target="_blank"
+                                            rel="noopener noreferrer"
+                                            className="text-blue-600 hover:underline"
+                                        >
+                                            View on Google Maps
+                                        </Link>
+                                    )}
+                                </div>
                                 <div className="flex flex-wrap gap-3 text-sm text-slate-600">
                                     {row.location && (
                                         <span className="inline-flex items-center">

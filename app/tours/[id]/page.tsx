@@ -437,6 +437,7 @@ export default function TourDetailPage() {
         _special_requests: specialRequests || null,
         _status: "pending",
         _payment_status: "pending",
+        _coupon_ref: coupon?.ref ?? null,
       });
 
 
