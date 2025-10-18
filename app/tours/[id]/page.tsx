@@ -51,6 +51,8 @@ type UITour = {
   included: string[]
   notIncluded: string[]
   bookingNotes?: string
+  dailyCapacity?: number | null
+  oneGroupLimit?: boolean | null
 }
 
 type PickerValue = { address: string; lat: number; lng: number }
@@ -232,7 +234,7 @@ export default function TourDetailPage() {
         setError(null)
         const columns = `
         id, title, short_title, price, duration, max_guests,
-        rating, reviews, image, highlights, description, pickup_restrictions
+        rating, reviews, image, highlights, description, pickup_restrictions, daily_capacity, one_group_limit
       `
         const { data, error } = await supabase
           .from("tours")
@@ -266,6 +268,8 @@ export default function TourDetailPage() {
             included: [],
             notIncluded: [],
             bookingNotes: "",
+            dailyCapacity: Number.isFinite(data.daily_capacity) ? Number(data.daily_capacity) : null,
+            oneGroupLimit: Boolean(data.one_group_limit),
           }
           setTour(mapped)
         }
@@ -278,6 +282,85 @@ export default function TourDetailPage() {
   }, [routeId])
   // Pic gallery here
   const [galleryLoading, setGalleryLoading] = useState(false);
+  const [availabilityMsg, setAvailabilityMsg] = useState<string | null>(null)
+  const [availabilityError, setAvailabilityError] = useState<string | null>(null)
+  // Check capacity rules for the selected date
+  async function checkAvailabilityForDate(dateISO: string): Promise<boolean> {
+    if (!tour || !dateISO) return true;
+
+    // fetch existing (non-cancelled) bookings for tour+date
+    const { data, error } = await supabase
+      .from("bookings")
+      .select("id, guests, status")
+      .eq("tour_id", tour.dbId)
+      .eq("tour_date", dateISO)
+      .neq("status", "cancelled");
+
+    if (error) {
+      console.error("[availability] query failed:", error);
+      // fail-safe: do not block the booking, but clear messages
+      setAvailabilityError(null);
+      setAvailabilityMsg(null);
+      return true;
+    }
+
+    const rows = data ?? [];
+    const existingGroups = rows.length;
+    const existingGuests = rows.reduce((sum, r: any) => sum + (Number(r.guests) || 0), 0);
+
+    // Rule A: Private day – only one group allowed
+    if (tour.oneGroupLimit) {
+      if (existingGroups > 0) {
+        setAvailabilityError(
+          "This date is already booked as a private tour. Please choose another date."
+        );
+        setAvailabilityMsg(null);
+        return false;
+      }
+      if (guests > tour.maxGuests) {
+        setAvailabilityError(`Maximum group size is ${tour.maxGuests}.`);
+        setAvailabilityMsg(null);
+        return false;
+      }
+      setAvailabilityError(null);
+      setAvailabilityMsg("This date is available as a private tour.");
+      return true;
+    }
+
+    // Rule B: Shared day – multiple groups allowed up to daily_capacity
+    const cap = (tour.dailyCapacity && tour.dailyCapacity > 0)
+      ? tour.dailyCapacity
+      : tour.maxGuests; // fallback if no daily_capacity set
+
+    const remaining = Math.max(cap - existingGuests, 0);
+
+    if (remaining <= 0) {
+      setAvailabilityError(`Fully booked on ${dateISO}. Please pick another date.`);
+      setAvailabilityMsg(null);
+      return false;
+    }
+
+    if (guests > remaining) {
+      setAvailabilityError(
+        `Only ${remaining} seat${remaining === 1 ? "" : "s"} left on ${dateISO}. Reduce guests or choose another date.`
+      );
+      setAvailabilityMsg(null);
+      return false;
+    }
+
+    setAvailabilityError(null);
+    setAvailabilityMsg(`${remaining} seat${remaining === 1 ? "" : "s"} available on ${dateISO}.`);
+    return true;
+  }
+  useEffect(() => {
+    if (!selectedDate) {
+      setAvailabilityError(null);
+      setAvailabilityMsg(null);
+      return;
+    }
+    checkAvailabilityForDate(selectedDate);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedDate, guests, tour?.oneGroupLimit, tour?.dailyCapacity, tour?.maxGuests]);
 
   useEffect(() => {
     if (!tour?.dbId) return;
@@ -422,6 +505,15 @@ export default function TourDetailPage() {
     setSubmitting(true)
 
     try {
+      // Final guard: re-check availability just before inserting
+      const ok = await checkAvailabilityForDate(selectedDate);
+      if (!ok) {
+        // prevent submit and focus date
+        alert(availabilityError || "Selected date is no longer available.");
+        setSubmitting(false);
+        return;
+      }
+
       const { data, error } = await supabase.rpc("book_tour_atomic_by_date", {
         _tour_id: tour.dbId,
         _tour_date: selectedDate,
@@ -960,6 +1052,7 @@ export default function TourDetailPage() {
                         Preferred Date *
                       </Label>
                       <Input
+
                         id="date"
                         type="date"
                         value={selectedDate}
@@ -967,7 +1060,14 @@ export default function TourDetailPage() {
                         className="border-amber-200 focus:ring-amber-500"
                         required
                         min={new Date().toISOString().split("T")[0]}
+
                       />
+                      {availabilityError && (
+                        <p className="mt-2 text-sm text-red-600">{availabilityError}</p>
+                      )}
+                      {!availabilityError && availabilityMsg && (
+                        <p className="mt-2 text-sm text-emerald-700">{availabilityMsg}</p>
+                      )}
                     </div>
 
                     <div>

@@ -29,6 +29,7 @@ type DBGalleryRow = {
     image_url: string | null;   // optional single cover in DB
     created_at: string;
     google_url: string;
+    relevant_tour: string;
 };
 
 const BUCKET = "Gallery";
@@ -58,7 +59,7 @@ export default function GalleryDetailPage() {
 
             const { data, error } = await supabase
                 .from("gallery")
-                .select("id,title,description,location,category,image_url,created_at,google_url")
+                .select("id,title,description,location,category,image_url,created_at,google_url,relevant_tour")
                 .eq("is_approved", true)
                 .eq("id", id)
                 .maybeSingle();
@@ -267,7 +268,10 @@ export default function GalleryDetailPage() {
                                     {row.location && (
                                         <span className="inline-flex items-center">
                                             <MapPin className="h-4 w-4 mr-1 text-amber-600" />
-                                            {row.location}
+                                            <Link href={`/tours/${encodeURIComponent(String(row.relevant_tour))}`}>
+                                                {row.location}
+                                            </Link>
+
                                         </span>
                                     )}
                                     {row.category && (
