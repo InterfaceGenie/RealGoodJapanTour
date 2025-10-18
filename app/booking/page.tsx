@@ -20,7 +20,7 @@ import { ExternalLink } from "lucide-react";
 
 type UITour = {
   id: string;
-  dbId: string;      // real uuid (tours.id)
+  dbId: string;
   title: string;
   shortTitle?: string;
   price: number;
@@ -28,11 +28,14 @@ type UITour = {
   maxGuests: number;
   rating: number;
   reviews: number;
-  image: string | null;     // singular in DB
+  image: string | null;
   highlights: string[];
   description: string;
   pickupRestrictions: string;
+  dailyCapacity?: number | null;
+  oneGroupLimit?: boolean | null;
 };
+
 
 type PickerValue = { address: string; lat: number | null; lng: number | null };
 const normPick = (v: any): PickerValue =>
@@ -87,6 +90,9 @@ export default function BookingGridPage() {
   const [coupon, setCoupon] = useState<Coupon | null>(null);
   const [couponLoading, setCouponLoading] = useState(false);
   const [couponError, setCouponError] = useState<string | null>(null);
+  // availbility check
+  const [availabilityMsg, setAvailabilityMsg] = useState<string | null>(null);
+  const [availabilityError, setAvailabilityError] = useState<string | null>(null);
 
   // reset coupon when tour or guests change (optional)
   useEffect(() => {
@@ -137,9 +143,11 @@ export default function BookingGridPage() {
       setError(null);
 
       const columns = `
-        id, title, short_title, price, duration, max_guests,
-        rating, reviews, image, highlights, description, pickup_restrictions
+          id, title, short_title, price, duration, max_guests,
+          rating, reviews, image, highlights, description, pickup_restrictions,
+          daily_capacity, one_group_limit
       `;
+
       const { data, error } = await supabase
         .from("tours")
         .select(columns)
@@ -155,7 +163,7 @@ export default function BookingGridPage() {
       }
 
       const mapped: UITour[] = (data || []).map((t: any) => ({
-        id: (t.id as string),
+        id: t.id as string,
         dbId: t.id as string,
         title: t.title,
         shortTitle: t.short_title ?? undefined,
@@ -168,7 +176,10 @@ export default function BookingGridPage() {
         highlights: Array.isArray(t.highlights) ? t.highlights : [],
         description: t.description ?? "",
         pickupRestrictions: t.pickup_restrictions ?? "flexible",
+        dailyCapacity: Number.isFinite(t.daily_capacity) ? Number(t.daily_capacity) : null,
+        oneGroupLimit: Boolean(t.one_group_limit),
       }));
+
 
       setTours(mapped);
       if (mapped.length && !selectedId) setSelectedId(mapped[0].id);
@@ -177,6 +188,70 @@ export default function BookingGridPage() {
 
     return () => { active = false; };
   }, [selectedId]);
+  async function checkAvailabilityForDate(tour: UITour | null, dateISO: string, guestCount: number): Promise<boolean> {
+    if (!tour || !dateISO) { setAvailabilityError(null); setAvailabilityMsg(null); return true; }
+
+    // existing (non-cancelled) bookings that day
+    const { data, error } = await supabase
+      .from("bookings")
+      .select("id, guests, status")
+      .eq("tour_id", tour.dbId)
+      .eq("tour_date", dateISO)
+      .neq("status", "cancelled");
+
+    if (error) {
+      console.error("[availability] query failed:", error);
+      setAvailabilityError(null);
+      setAvailabilityMsg(null);
+      return true; // fail-open so users aren’t blocked on transient issues
+    }
+
+    const rows = data ?? [];
+    const existingGroups = rows.length;
+    const existingGuests = rows.reduce((s: number, r: any) => s + (Number(r.guests) || 0), 0);
+
+    // A) Private day -> only one group allowed; group size capped by maxGuests
+    if (tour.oneGroupLimit) {
+      if (existingGroups > 0) {
+        setAvailabilityError("This date is already booked as a private tour. Please choose another date.");
+        setAvailabilityMsg(null);
+        return false;
+      }
+      if (guestCount > tour.maxGuests) {
+        setAvailabilityError(`Maximum group size is ${tour.maxGuests}.`);
+        setAvailabilityMsg(null);
+        return false;
+      }
+      setAvailabilityError(null);
+      setAvailabilityMsg("This date is available as a private tour.");
+      return true;
+    }
+
+    // B) Shared day -> multiple groups until daily capacity (fallback to maxGuests if capacity not set)
+    const cap = (tour.dailyCapacity && tour.dailyCapacity > 0) ? tour.dailyCapacity : tour.maxGuests;
+    const remaining = Math.max(cap - existingGuests, 0);
+
+    if (remaining <= 0) {
+      setAvailabilityError(`Fully booked on ${dateISO}. Please pick another date.`);
+      setAvailabilityMsg(null);
+      return false;
+    }
+    if (guestCount > remaining) {
+      setAvailabilityError(`Only ${remaining} seat${remaining === 1 ? "" : "s"} left on ${dateISO}. Reduce guests or choose another date.`);
+      setAvailabilityMsg(null);
+      return false;
+    }
+
+    setAvailabilityError(null);
+    setAvailabilityMsg(`${remaining} seat${remaining === 1 ? "" : "s"} available on ${dateISO}.`);
+    return true;
+  }
+  // avaibility check useEffect
+  useEffect(() => {
+    if (!selectedDate) { setAvailabilityError(null); setAvailabilityMsg(null); return; }
+    void checkAvailabilityForDate(selectedTour, selectedDate, guests);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedDate, guests, selectedTour?.id, selectedTour?.oneGroupLimit, selectedTour?.dailyCapacity, selectedTour?.maxGuests]);
 
   // Shared pricing calc (group tiers + solo multiplier + coupon)
   const breakdown = priceBreakdown({
@@ -238,6 +313,8 @@ export default function BookingGridPage() {
     });
 
     setSubmitting(false);
+    const ok = await checkAvailabilityForDate(selectedTour, selectedDate, guests);
+    if (!ok) { alert(availabilityError || "Selected date is no longer available."); return; }
 
     if (error) {
       if ((error as any)?.message?.includes("book_tour_atomic")) {
@@ -539,7 +616,14 @@ export default function BookingGridPage() {
                         min={new Date().toISOString().split("T")[0]}
                         className="h-12 rounded-xl border-2 border-amber-200 focus-visible:ring-amber-500"
                       />
+                      {availabilityError && (
+                        <p className="mt-2 text-sm text-red-600">{availabilityError}</p>
+                      )}
+                      {!availabilityError && availabilityMsg && (
+                        <p className="mt-2 text-sm text-emerald-700">{availabilityMsg}</p>
+                      )}
                     </div>
+
                     <div>
                       <Label className="text-sm font-semibold mb-2 block text-slate-900">Preferred Time *</Label>
                       <select
