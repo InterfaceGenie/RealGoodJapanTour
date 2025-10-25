@@ -1087,9 +1087,11 @@ export default function TourDetailPage() {
                         <option value="9:00 AM">9:00 AM</option>
                         <option value="9:30 AM">9:30 AM</option>
                         <option value="10:00 AM">10:00 AM</option>
-                        <option value="6:00 PM">6:00 PM</option>
-                        <option value="6:30 PM">6:30 PM</option>
-                        <option value="7:00 PM">7:00 PM</option>
+                        <option value="11:00 AM">11:00 AM</option>
+                        <option value="12:00 PM">12:00 PM</option>
+                        <option value="1:00 PM">1:00 PM</option>
+                        <option value="2:00 PM">2:00 PM</option>
+                        <option value="3:00 PM">3:00 PM</option>
                       </select>
                     </div>
 
